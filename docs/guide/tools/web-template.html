@@ -1,0 +1,277 @@
+<title>CSTAM Implementation Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --ground: #f6f7f5; --surface: #ffffff; --ink: #1b2430; --muted: #5d6874; --line: #dde2e0;
+  --accent: #0b6e78; --accent-soft: #e3f1f2; --code-bg: #f2f4f3; --code-ink: #24303c;
+  --why: #0b6e78; --why-bg: #e8f3f4; --warn: #b42318; --warn-bg: #fdf0ee; --note: #a35f00; --note-bg: #fdf6e7;
+  --done: #2f7d4a; --done-bg: #ecf6ef; --learn: #6b4fa3; --learn-bg: #f3effa; --claude: #4a5561; --claude-bg: #eff1f2;
+  --gate: #a3215f; --gate-bg: #fbedf3; --shadow: 0 1px 2px rgba(20,30,40,.06);
+  --kw: #8a3fa0; --st: #2f7d4a; --co: #7d8893; --fn: #1f5fbf; --dt: #a35f00; --num: #a35f00;
+  --side: 300px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #12171c; --surface: #181f26; --ink: #e2e7eb; --muted: #9aa6b1; --line: #2a333c;
+    --accent: #5fb8c2; --accent-soft: #1b3236; --code-bg: #0f1418; --code-ink: #d6dde3;
+    --why: #5fb8c2; --why-bg: #172a2e; --warn: #f0877a; --warn-bg: #2e1a19; --note: #e0a64a; --note-bg: #2b2416;
+    --done: #6cc28b; --done-bg: #17291f; --learn: #b39ae6; --learn-bg: #241f33; --claude: #aab4be; --claude-bg: #1d242b;
+    --gate: #ec7fb0; --gate-bg: #2e1824; --shadow: none;
+    --kw: #d39cf0; --st: #8fd19e; --co: #7b8794; --fn: #7fb2ff; --dt: #e7b866; --num: #e7b866;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #12171c; --surface: #181f26; --ink: #e2e7eb; --muted: #9aa6b1; --line: #2a333c;
+  --accent: #5fb8c2; --accent-soft: #1b3236; --code-bg: #0f1418; --code-ink: #d6dde3;
+  --why: #5fb8c2; --why-bg: #172a2e; --warn: #f0877a; --warn-bg: #2e1a19; --note: #e0a64a; --note-bg: #2b2416;
+  --done: #6cc28b; --done-bg: #17291f; --learn: #b39ae6; --learn-bg: #241f33; --claude: #aab4be; --claude-bg: #1d242b;
+  --gate: #ec7fb0; --gate-bg: #2e1824; --shadow: none;
+  --kw: #d39cf0; --st: #8fd19e; --co: #7b8794; --fn: #7fb2ff; --dt: #e7b866; --num: #e7b866;
+}
+* { box-sizing: border-box; }
+html { scroll-padding-top: 72px; }
+body { background: var(--ground); color: var(--ink); font: 16px/1.62 "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; margin: 0; }
+a { color: var(--accent); text-underline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* top bar */
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; background: color-mix(in srgb, var(--ground) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+.brand { font-family: Archivo, "IBM Plex Sans", sans-serif; font-weight: 700; letter-spacing: .01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand small { font-weight: 500; color: var(--muted); margin-left: 6px; }
+.spacer { flex: 1; }
+.btn { font: 500 13px/1 "IBM Plex Sans", sans-serif; color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 11px; cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+#menu-btn { display: none; }
+.progress { position: absolute; left: 0; bottom: -1px; height: 2px; background: var(--accent); width: 0; }
+
+/* layout */
+.layout { display: grid; grid-template-columns: var(--side) minmax(0, 1fr); }
+nav.side { position: sticky; top: 57px; height: calc(100vh - 57px); overflow: auto; padding: 16px 12px 40px 16px; border-right: 1px solid var(--line); }
+nav.side input { width: 100%; font: 14px "IBM Plex Sans", sans-serif; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--surface); color: var(--ink); margin-bottom: 12px; }
+nav.side ul { list-style: none; margin: 0; padding: 0; }
+nav.side > ul > li { margin: 2px 0; }
+nav.side > ul > li > a { display: block; font-size: 13.5px; font-weight: 600; color: var(--ink); text-decoration: none; padding: 5px 8px; border-radius: 5px; }
+nav.side > ul > li > a:hover, nav.side a.active { background: var(--accent-soft); color: var(--accent); }
+nav.side ul ul { margin: 0 0 6px 10px; border-left: 1px solid var(--line); display: none; }
+nav.side li.open > ul, nav.side.filtering ul ul { display: block; }
+nav.side ul ul a { display: block; font-size: 12.5px; color: var(--muted); text-decoration: none; padding: 3px 8px; line-height: 1.35; }
+nav.side ul ul a:hover { color: var(--accent); }
+nav.side li.part-item > a { margin-top: 14px; text-transform: uppercase; letter-spacing: .07em; font-size: 11.5px; color: var(--accent); }
+
+main { padding-block: 24px 120px; padding-inline: clamp(16px, 4vw, 56px); min-width: 0; }
+article { max-width: 860px; margin: 0 auto; }
+
+/* cover */
+.cover { padding-block: 24px 40px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.cover .tag { font: 600 12px/1 "IBM Plex Mono", monospace; letter-spacing: .12em; color: var(--accent); text-transform: uppercase; }
+.cover h1.ct { font: 700 clamp(30px, 5vw, 46px)/1.08 Archivo, sans-serif; margin: 12px 0 10px; border: 0; padding: 0; text-wrap: balance; }
+.cover p { color: var(--muted); max-width: 62ch; margin: 0 0 14px; }
+.cover .facts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.cover .facts span { font: 500 12.5px/1 "IBM Plex Mono", monospace; padding: 7px 9px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); }
+
+/* headings */
+h1 { font: 700 30px/1.15 Archivo, sans-serif; margin: 64px 0 16px; padding-top: 18px; border-top: 3px solid var(--ink); text-wrap: balance; }
+h1.part { border-top: 0; color: var(--accent); font-size: 34px; margin-top: 80px; padding: 26px 0 0; }
+h1.part + p { font-size: 18px; color: var(--muted); max-width: 62ch; }
+h2 { font: 600 22px/1.25 Archivo, sans-serif; margin: 40px 0 12px; text-wrap: balance; }
+h3 { font: 600 17.5px/1.3 Archivo, sans-serif; margin: 30px 0 8px; color: var(--accent); }
+h4 { font: 600 15.5px/1.35 "IBM Plex Sans", sans-serif; margin: 22px 0 6px; }
+p, li { max-width: 72ch; }
+ul, ol { padding-left: 24px; } li { margin: 3px 0; }
+strong { font-weight: 600; }
+code { font: 0.86em/1.4 "IBM Plex Mono", ui-monospace, monospace; background: var(--code-bg); border: 1px solid var(--line); padding: 1px 4px; border-radius: 4px; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 32px 0; }
+blockquote { margin: 16px 0; padding: 8px 16px; border-left: 3px solid var(--line); color: var(--muted); }
+
+/* tables */
+.table-wrap { overflow-x: auto; margin: 14px 0 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.45; }
+th, td { text-align: left; vertical-align: top; padding: 8px 11px; border-bottom: 1px solid var(--line); }
+th { background: var(--code-bg); font-weight: 600; font-size: 13px; }
+tr:last-child td { border-bottom: 0; }
+td code, th code { font-size: .82em; }
+
+/* figures */
+figure { margin: 22px 0; }
+figure img, article p > img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: zoom-in; }
+figcaption { font-size: 13.5px; color: var(--muted); margin-top: 8px; }
+.lightbox { position: fixed; inset: 0; z-index: 50; background: rgba(10,14,18,.86); display: flex; align-items: center; justify-content: center; padding: 20px; cursor: zoom-out; }
+.lightbox img { max-width: 100%; max-height: 100%; background: #fff; border-radius: 6px; }
+
+/* callouts */
+div.why, div.warn, div.note, div.done, div.learn, div.claude, div.gate, div.listing {
+  border-radius: 8px; padding: 12px 16px; margin: 18px 0; border: 1px solid var(--line); background: var(--surface); }
+div.why { background: var(--why-bg); border-color: color-mix(in srgb, var(--why) 35%, transparent); }
+div.warn { background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+div.note { background: var(--note-bg); border-color: color-mix(in srgb, var(--note) 35%, transparent); }
+div.done { background: var(--done-bg); border-color: color-mix(in srgb, var(--done) 35%, transparent); }
+div.learn { background: var(--learn-bg); border-color: color-mix(in srgb, var(--learn) 35%, transparent); }
+div.claude { background: var(--claude-bg); }
+div.gate { background: var(--gate-bg); border: 2px solid var(--gate); }
+div.why > p:first-child > strong:first-child { color: var(--why); }
+div.warn > p:first-child > strong:first-child { color: var(--warn); }
+div.note > p:first-child > strong:first-child { color: var(--note); }
+div.done > p:first-child > strong:first-child { color: var(--done); }
+div.learn > p:first-child > strong:first-child { color: var(--learn); }
+div.claude > p:first-child > strong:first-child { color: var(--claude); }
+div.gate > p:first-child > strong:first-child { color: var(--gate); }
+div[class] > p:first-child > strong:first-child { display: block; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 2px; }
+div[class] > :last-child { margin-bottom: 0; } div[class] > :first-child { margin-top: 0; }
+div[class] p, div[class] li { max-width: none; }
+
+/* collapsible code */
+details.code { margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; }
+details.code > summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; font-size: 13.5px; min-width: 0; }
+details.code > summary::-webkit-details-marker { display: none; }
+details.code > summary::before { content: "▸"; color: var(--muted); transition: transform .15s; flex: none; }
+details.code[open] > summary::before { transform: rotate(90deg); }
+details.code > summary:hover { background: var(--code-bg); }
+.lang { flex: none; font: 600 11px/1 "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .06em; color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); padding: 4px 6px; border-radius: 4px; }
+.ctitle { flex: 1; min-width: 0; font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lines { flex: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.copy { flex: none; font: 500 12px/1 "IBM Plex Sans", sans-serif; padding: 5px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--ink); cursor: pointer; }
+details.code:not([open]) .copy { display: none; }
+details.code div.sourceCode, details.code > pre { margin: 0; border-top: 1px solid var(--line); }
+pre { margin: 0; padding: 12px 14px; overflow-x: auto; background: var(--code-bg); color: var(--code-ink); font: 13px/1.5 "IBM Plex Mono", ui-monospace, monospace; tab-size: 4; }
+pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+div.sourceCode { overflow-x: auto; background: var(--code-bg); }
+code span.kw, code span.cf { color: var(--kw); } code span.st, code span.ss, code span.ch { color: var(--st); }
+code span.co, code span.cm { color: var(--co); font-style: italic; } code span.fu { color: var(--fn); }
+code span.dt, code span.bu { color: var(--dt); } code span.dv, code span.fl, code span.bn, code span.cn { color: var(--num); }
+code span.op, code span.ot, code span.va { color: inherit; }
+
+/* phone */
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  #menu-btn { display: inline-block; }
+  nav.side { position: fixed; z-index: 30; top: 57px; left: 0; width: min(88vw, 340px); background: var(--ground); transform: translateX(-102%); transition: transform .2s; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+  body.menu-open nav.side { transform: none; }
+  .brand small { display: none; }
+  h1 { font-size: 25px; } h1.part { font-size: 28px; }
+}
+@media (max-width: 560px) { #theme-btn { display: none; } .btn { padding: 7px 9px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+</style>
+
+<header class="topbar">
+  <button class="btn" id="menu-btn" aria-label="Contents" aria-expanded="false">☰</button>
+  <div class="brand">CSTAM × FelCloud<small>Implementation guide</small></div>
+  <div class="spacer"></div>
+  <button class="btn" id="code-btn" aria-pressed="false">Expand all code</button>
+  <button class="btn" id="theme-btn" aria-label="Switch theme">Theme</button>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="layout">
+  <nav class="side" id="side" aria-label="Contents">
+    <input id="toc-filter" type="search" placeholder="Filter sections…" aria-label="Filter sections">
+    $toc$
+  </nav>
+  <main>
+    <article id="doc">
+      <section class="cover">
+        <div class="tag">CSTAM 3.0 · Challenge CSTAM-FELCLOUD</div>
+        <h1 class="ct">The Resilient IP Optimizer</h1>
+        <p>Implementation guide in Go: every architecture decision with its alternatives, and a step-by-step build plan, with go/no-go gates, that works on FelCloud's OpenStack. Code blocks are folded: open the ones you need, or use <em>Expand all code</em>.</p>
+        <div class="facts"><span>Go 1.25</span><span>Pulumi (Go)</span><span>OpenStack · OVN</span><span>HAProxy 3.2 + keepalived</span><span>PostgreSQL 16</span><span>v2.1 · $date$</span></div>
+      </section>
+$body$
+    </article>
+  </main>
+</div>
+
+<script>
+(function () {
+  var doc = document.getElementById('doc'), side = document.getElementById('side');
+  // tables scroll inside their own box on narrow screens
+  doc.querySelectorAll('table').forEach(function (t) {
+    if (t.parentElement.classList.contains('table-wrap')) return;
+    var w = document.createElement('div'); w.className = 'table-wrap'; t.parentNode.insertBefore(w, t); w.appendChild(t);
+  });
+  // copy buttons on code blocks
+  doc.querySelectorAll('details.code').forEach(function (d) {
+    var b = document.createElement('button'); b.className = 'copy'; b.type = 'button'; b.textContent = 'Copy';
+    d.querySelector('summary').appendChild(b);
+    b.addEventListener('click', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      var pre = d.querySelector('pre'), text = pre ? pre.innerText : '';
+      var done = function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1400); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () { select(pre); b.textContent = 'Selected'; });
+      } else { select(pre); b.textContent = 'Selected'; }
+    });
+  });
+  function select(el) { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+  // expand / collapse all code
+  var codeBtn = document.getElementById('code-btn'), all = doc.querySelectorAll('details.code');
+  function setAll(open) {
+    all.forEach(function (d) { d.open = open; });
+    codeBtn.setAttribute('aria-pressed', open ? 'true' : 'false');
+    codeBtn.textContent = open ? 'Collapse all code' : 'Expand all code';
+    try { localStorage.setItem('cstam-code-open', open ? '1' : '0'); } catch (e) {}
+  }
+  codeBtn.addEventListener('click', function () { setAll(codeBtn.getAttribute('aria-pressed') !== 'true'); });
+  try { if (localStorage.getItem('cstam-code-open') === '1') setAll(true); } catch (e) {}
+  // theme toggle (explicit choice overrides the system setting)
+  var root = document.documentElement;
+  try { var t = localStorage.getItem('cstam-theme'); if (t) root.setAttribute('data-theme', t); } catch (e) {}
+  document.getElementById('theme-btn').addEventListener('click', function () {
+    var dark = root.getAttribute('data-theme') ? root.getAttribute('data-theme') === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    var next = dark ? 'light' : 'dark'; root.setAttribute('data-theme', next);
+    try { localStorage.setItem('cstam-theme', next); } catch (e) {}
+  });
+  // contents: parts, open chapter of the current section, filter
+  side.querySelectorAll(':scope > ul > li').forEach(function (li) {
+    var a = li.querySelector('a'); if (a && /^Part /.test(a.textContent.trim())) li.classList.add('part-item');
+  });
+  var filter = document.getElementById('toc-filter');
+  filter.addEventListener('input', function () {
+    var q = filter.value.trim().toLowerCase();
+    side.classList.toggle('filtering', q.length > 0);
+    side.querySelectorAll('li').forEach(function (li) {
+      li.hidden = q.length > 0 && li.textContent.toLowerCase().indexOf(q) === -1;
+    });
+  });
+  var links = Array.prototype.slice.call(side.querySelectorAll('a[href^="#"]'));
+  var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1))); });
+  var current = null;
+  function onScroll() {
+    var y = window.scrollY + 90, idx = -1;
+    for (var i = 0; i < targets.length; i++) { if (targets[i] && targets[i].offsetTop <= y) idx = i; }
+    var h = document.documentElement.scrollHeight - innerHeight;
+    document.getElementById('progress').style.width = (h > 0 ? (scrollY / h) * 100 : 0) + '%';
+    if (idx < 0 || links[idx] === current) return;
+    if (current) current.classList.remove('active');
+    current = links[idx]; current.classList.add('active');
+    side.querySelectorAll('li.open').forEach(function (li) { li.classList.remove('open'); });
+    var top = current.closest('nav.side > ul > li'); if (top) top.classList.add('open');
+  }
+  addEventListener('scroll', onScroll, { passive: true }); onScroll();
+  // phone menu
+  var menu = document.getElementById('menu-btn');
+  menu.addEventListener('click', function () {
+    var open = !document.body.classList.contains('menu-open');
+    document.body.classList.toggle('menu-open', open); menu.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  side.addEventListener('click', function (e) { if (e.target.tagName === 'A') { document.body.classList.remove('menu-open'); menu.setAttribute('aria-expanded', 'false'); } });
+  // click a diagram to see it full screen
+  doc.querySelectorAll('figure img, p > img').forEach(function (img) {
+    img.addEventListener('click', function () {
+      var box = document.createElement('div'); box.className = 'lightbox';
+      var big = document.createElement('img'); big.src = img.src; big.alt = img.alt; box.appendChild(big);
+      box.addEventListener('click', function () { box.remove(); });
+      document.body.appendChild(box);
+    });
+  });
+  addEventListener('keydown', function (e) { if (e.key === 'Escape') { var lb = document.querySelector('.lightbox'); if (lb) lb.remove(); } });
+})();
+</script>
