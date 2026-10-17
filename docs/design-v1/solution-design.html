@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CSTAM x FelCloud - Solution Design</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 18mm 15mm; }
+  :root {
+    --ink: #1e1e1e; --muted: #5c636a; --line: #dee2e6;
+    --blue: #1971c2; --green: #2f9e44; --red: #c92a2a; --orange: #e8590c; --purple: #9c36b5;
+    --blue-bg: #e7f5ff; --green-bg: #ebfbee; --red-bg: #fff5f5; --yellow-bg: #fff9db; --gray-bg: #f8f9fa;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: "Inter", "Segoe UI", "Liberation Sans", Arial, sans-serif; color: var(--ink);
+         font-size: 10.5pt; line-height: 1.5; margin: 0; background: #fff; }
+  h1, h2, h3 { line-height: 1.25; }
+  h1 { font-size: 26pt; margin: 0 0 6px; }
+  h2 { font-size: 17pt; margin: 0 0 10px; padding-bottom: 6px; border-bottom: 3px solid var(--blue); }
+  h3 { font-size: 12.5pt; margin: 18px 0 6px; color: var(--blue); }
+  p { margin: 6px 0; }
+  ul, ol { margin: 6px 0; padding-left: 22px; }
+  li { margin: 2px 0; }
+  code { font-family: "DejaVu Sans Mono", "Liberation Mono", monospace; font-size: 9pt;
+         background: #f1f3f5; padding: 1px 4px; border-radius: 3px; }
+  pre { font-family: "DejaVu Sans Mono", "Liberation Mono", monospace; font-size: 8.6pt; background: #f1f3f5;
+        padding: 8px 10px; border-radius: 6px; white-space: pre-wrap; margin: 8px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 10px; font-size: 9.4pt; }
+  th, td { border: 1px solid var(--line); padding: 5px 7px; text-align: left; vertical-align: top; }
+  th { background: var(--gray-bg); font-weight: 600; }
+  tr.chosen td { background: var(--green-bg); }
+  figure { margin: 10px 0 12px; text-align: center; break-inside: avoid; }
+  figure img { max-width: 100%; max-height: 112mm; border: 1px solid var(--line); border-radius: 6px; }
+  .final figure img { max-height: 175mm; }
+  figcaption { font-size: 9pt; color: var(--muted); margin-top: 4px; }
+  section { break-before: page; }
+  .cover { height: 255mm; display: flex; flex-direction: column; justify-content: center; }
+  .cover .tag { color: var(--green); font-weight: 700; letter-spacing: .08em; font-size: 10pt; }
+  .cover .sub { font-size: 14pt; color: var(--muted); margin-bottom: 26px; }
+  .cover .meta { font-size: 10pt; color: var(--muted); margin-top: 28px; }
+  .box { border-radius: 6px; padding: 8px 12px; margin: 10px 0; break-inside: avoid; }
+  .why { background: var(--blue-bg); border-left: 4px solid var(--blue); }
+  .warn { background: var(--red-bg); border-left: 4px solid var(--red); }
+  .note { background: var(--yellow-bg); border-left: 4px solid var(--orange); }
+  .ok { background: var(--green-bg); border-left: 4px solid var(--green); }
+  .box b.t { display: block; margin-bottom: 2px; }
+  .toc ol { padding-left: 20px; }
+  .toc li { margin: 3px 0; }
+  .steps li { margin: 4px 0; }
+  .final h2 { border-bottom-color: var(--green); }
+  .small { font-size: 9pt; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<div class="cover">
+  <div class="tag">CSTAM 3.0 &middot; CHALLENGE CSTAM-FELCLOUD</div>
+  <h1>The Resilient IP Optimizer</h1>
+  <div class="sub">Solution design, explained step by step: from the problem to the final architecture</div>
+  <div class="box why">
+    <b class="t">What this document is</b>
+    A walkthrough of the design we reached, one stage at a time. Each stage explains <i>what</i> the component
+    does, <i>how</i> it works, <i>why</i> we need it, and <i>which alternatives</i> we rejected and why.
+    Every stage has its own focused diagram; the complete architecture is in the last section.
+  </div>
+  <div class="box ok">
+    <b class="t">The final solution in one sentence</b>
+    One public floating IP points to a virtual IP shared by <b>two HAProxy + Keepalived gateways</b>; they route each
+    team subdomain to that <b>team's own Neutron-managed private IP</b> on a <b>Docker host VM (one per hackathon)</b>,
+    where each team gets an isolated bridge network; a <b>control plane</b> (API + IPAM + reconciler + dashboard)
+    provisions, validates, rolls back and tears everything down in a safe order.
+  </div>
+  <div class="meta">Platform: FelCloud OpenStack (region North-Africa) &middot; Version 1 &middot; 14 October 2026</div>
+</div>
+
+<!-- ============ CONTENTS ============ -->
+<section class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li>The problem we are solving</li>
+    <li>Stage 1 &ndash; The OpenStack foundation</li>
+    <li>Stage 2 &ndash; Where a team's sandbox runs</li>
+    <li>Stage 3 &ndash; Team networking inside a hackathon host</li>
+    <li>Stage 4 &ndash; Redundant HA gateways</li>
+    <li>Stage 5 &ndash; Zero-downtime reload and auto-rollback</li>
+    <li>Stage 6 &ndash; Provisioning a team</li>
+    <li>Stage 7 &ndash; Teardown and IP recycling (IPAM)</li>
+    <li>Stage 8 &ndash; Security and isolation</li>
+    <li>Stage 9 &ndash; Control plane and admin dashboard</li>
+    <li><b>Final solution</b> &ndash; complete architecture, end-to-end flows, requirement coverage</li>
+    <li>Risks, open questions and next steps</li>
+  </ol>
+
+  <h3>How the stages build on each other</h3>
+  <table>
+    <tr><th>Stage</th><th>Answers the question</th><th>Challenge items it serves</th></tr>
+    <tr><td>1 Foundation</td><td>What do we have on FelCloud and what must exist first?</td><td>All (prerequisite)</td></tr>
+    <tr><td>2 Sandbox runtime</td><td>VM, Kubernetes or Docker per team?</td><td>Provisioning (15), stress test (15)</td></tr>
+    <tr><td>3 Team networking</td><td>How does a team get its own IP and many apps without port juggling?</td><td>Provisioning, IPAM (10), isolation (5)</td></tr>
+    <tr><td>4 HA gateways</td><td>How do we route subdomains with no single point of failure?</td><td>HA gateways (15)</td></tr>
+    <tr><td>5 Reload / rollback</td><td>How do we change routes without downtime or broken configs?</td><td>Zero-downtime reload &amp; rollback (10)</td></tr>
+    <tr><td>6 Provisioning</td><td>What exactly happens when a team registers?</td><td>Provisioning, stress test</td></tr>
+    <tr><td>7 Teardown / IPAM</td><td>How do we release and reuse IPs safely?</td><td>IPAM (10), teardown &amp; lifecycle security (10)</td></tr>
+    <tr><td>8 Security</td><td>What stops a team from attacking others or the platform?</td><td>Isolation &amp; safeguards (5), security docs</td></tr>
+    <tr><td>9 Control plane</td><td>What drives and observes all of this?</td><td>Admin dashboard (10)</td></tr>
+  </table>
+</section>
+
+<!-- ============ 1. PROBLEM ============ -->
+<section>
+  <h2>1. The problem we are solving</h2>
+  <p>FelCloud hosts high-density hackathons. Today they rely on <b>static subnets</b> and <b>manually edited reverse
+  proxies</b>. When many teams deploy at once, or a proxy config breaks, the result is downtime and IP conflicts.</p>
+  <figure>
+    <img src="diagrams/01-problem.png" alt="Current state: one hand-edited proxy in front of a static subnet">
+    <figcaption>Figure 1 &ndash; Today: every team depends on one proxy, edited by hand, in front of IPs nobody manages.</figcaption>
+  </figure>
+  <h3>The three root causes (and what the challenge asks for)</h3>
+  <table>
+    <tr><th>Root cause</th><th>Symptom</th><th>What the challenge requires</th></tr>
+    <tr><td>Single gateway</td><td>Gateway crash = every team offline</td><td>Dual redundant HA gateways with instant failover (Phase 1, 15 pts)</td></tr>
+    <tr><td>Manual configuration</td><td>A typo takes the proxy down; no way back</td><td>Hot reload + syntax validation + sub-second auto-rollback (Phase 1, 10 pts)</td></tr>
+    <tr><td>No IP lifecycle</td><td>IPs leak, conflict, or get reused while still routed</td><td>Automated IPAM with short leases and immediate release (Phase 1, 10 pts); safe teardown (Phase 2, 10 pts)</td></tr>
+  </table>
+  <p>On top of these, the system must <b>auto-provision isolated sandboxes via an API</b> (15 pts), survive
+  <b>10+ simultaneous registrations</b> (15 pts), <b>block inter-sandbox traffic and protect the management layer</b>
+  (5 pts), and offer an <b>admin dashboard</b> (10 pts).</p>
+</section>
+
+<!-- ============ 2. STAGE 1 ============ -->
+<section>
+  <h2>2. Stage 1 &ndash; The OpenStack foundation</h2>
+  <p><b>Purpose:</b> know exactly what FelCloud gives us, and create the few base resources everything else sits on.</p>
+  <figure>
+    <img src="diagrams/02-foundation.png" alt="FelCloud project network layout">
+    <figcaption>Figure 2 &ndash; One private network hosts gateways, hackathon hosts and the control plane; a router connects it to the INTERNET network for floating IPs.</figcaption>
+  </figure>
+
+  <h3>What we verified on FelCloud (with the <code>openstack</code> CLI)</h3>
+  <ul>
+    <li><b>It is a real OpenStack IaaS</b>: Keystone v3.14, Nova (compute 2.1), Neutron, Cinder, Glance, Swift, Octavia, Heat, Placement, Skyline dashboard.</li>
+    <li><b>No container service</b>: neither Magnum (<code>container-infra</code>) nor Zun (<code>container</code>) is in the catalog, so containers run on our own VMs.</li>
+    <li><b>Network</b>: <code>cstam-sandbox-net</code> = <code>10.20.0.0/24</code>; external network <code>INTERNET</code> = <code>197.5.133.0/24</code>.</li>
+    <li><b>Neutron extensions we rely on are enabled</b>: <code>allowed-address-pairs</code>, <code>port-security</code>, <code>l3-ha</code>.</li>
+    <li><b>Quota</b>: 10 instances, 20 vCPU, 50 GB RAM, 1000 GB volumes. Two VMs already exist (<code>sbx-f0699704</code>, <code>adam</code>) and count against it.</li>
+    <li><b>Access</b>: a Keystone <i>application credential</i> stored in <code>~/.config/openstack/clouds.yaml</code> as cloud <code>cstam</code>.</li>
+  </ul>
+
+  <div class="box warn">
+    <b class="t">Prerequisite found during verification</b>
+    <code>cstam-sandbox-net</code> is <b>not connected to any router</b> today (the existing <code>private_router</code> has no
+    external gateway and serves another subnet). A floating IP cannot work without one, so step 1 of the build is:
+    <pre>openstack router create cstam-router --external-gateway INTERNET
+openstack router add subnet cstam-router cstam-sandbox-subnet</pre>
+  </div>
+
+  <h3>Why one shared private network</h3>
+  <p>Gateways, hackathon hosts and the control plane all live on <code>cstam-sandbox-net</code>. Isolation is not done by
+  splitting networks but by <b>security groups on every port</b> (Stage 8). This keeps routing simple: the gateway can reach
+  any team IP directly, and one subnet gives us ~250 addresses to manage in our IPAM.</p>
+</section>
+
+<!-- ============ 3. STAGE 2 ============ -->
+<section>
+  <h2>3. Stage 2 &ndash; Where a team's sandbox runs</h2>
+  <p><b>Purpose:</b> choose the runtime that gives each team an isolated place to deploy, fast, within our quota.</p>
+  <figure>
+    <img src="diagrams/03-sandbox-options.png" alt="Three sandbox options compared">
+    <figcaption>Figure 3 &ndash; The three options we evaluated. Option C (one Docker host per hackathon, one network per team) is chosen.</figcaption>
+  </figure>
+
+  <h3>The options in detail</h3>
+  <table>
+    <tr><th></th><th>A. One VM per team</th><th>B. VM + k3s, namespace per team</th><th>C. VM + Docker, network per team</th></tr>
+    <tr><td>Isolation</td><td>Strongest (own kernel)</td><td>Namespaces + NetworkPolicy</td><td>Bridge per team + iptables + hardening</td></tr>
+    <tr><td>Time to provision</td><td>30&ndash;90 s (boot from volume)</td><td>Seconds</td><td>Seconds</td></tr>
+    <tr><td>Fits quota (10 VMs)</td><td>No: ~8 teams max, stress test needs 10+</td><td>Yes</td><td>Yes: dozens of teams per VM</td></tr>
+    <tr><td>Per-team OpenStack IP</td><td>Native</td><td>Pod IPs are not Neutron IPs; needs MetalLB tricks</td><td>Neutron IP per team via allowed-address-pairs (Stage 3)</td></tr>
+    <tr><td>Our own scored work visible?</td><td>Yes</td><td>Less: Ingress/NetworkPolicy do the gateway and isolation work for us</td><td>Yes: iptables rules and NAT are explicitly scored items</td></tr>
+    <tr><td>Complexity / RAM overhead</td><td>Low / high per team</td><td>Medium / +0.5&ndash;1 GB per host</td><td>Low / minimal</td></tr>
+    <tr class="chosen"><td><b>Verdict</b></td><td>Not chosen (quota); revisit only if FelCloud raises the quota</td><td>Viable, not chosen</td><td><b>Chosen</b></td></tr>
+  </table>
+
+  <div class="box why">
+    <b class="t">Why Docker and not k3s</b>
+    Docker can meet every security requirement in the challenge: separate bridges block cross-team traffic by default, the
+    <code>DOCKER-USER</code> and <code>INPUT</code> iptables chains block the metadata service, the host and the management IPs,
+    and container hardening plus per-team cgroup slices handle resource abuse. k3s would add declarative policies, but it also
+    adds RAM, moving parts in a live demo, and it hides exactly the gateway and isolation work the judges score.
+  </div>
+  <div class="box note">
+    <b class="t">Granularity: one host VM per hackathon</b>
+    Each hackathon gets one Docker host VM (e.g. <code>G0.basic.4c8g</code>, roughly 10&ndash;15 small team apps). A host VM is a
+    failure domain for its own hackathon only; the platform-wide high availability requirement is about the <b>gateways</b>
+    (Stage 4), which we make fully redundant.
+  </div>
+</section>
+
+<!-- ============ 4. STAGE 3 ============ -->
+<section>
+  <h2>4. Stage 3 &ndash; Team networking inside a hackathon host</h2>
+  <p><b>Purpose:</b> give every team a real, OpenStack-managed private IP and let them run as many containers as they want,
+  without routing by port numbers.</p>
+  <figure>
+    <img src="diagrams/04-team-network.png" alt="Inside a hackathon host">
+    <figcaption>Figure 4 &ndash; Each team has its own Neutron IP on the host's network card, its own bridge, and a small router container that routes by hostname.</figcaption>
+  </figure>
+
+  <h3>How it works, step by step</h3>
+  <ol class="steps">
+    <li><b>Reserve the team IP in Neutron.</b> The control plane creates a Neutron port with no VM attached and a fixed IP
+      (e.g. <code>10.20.0.55</code>). This is how the IP becomes "managed by OpenStack".</li>
+    <li><b>Allow it on the host.</b> The IP is added to the host VM's port <code>allowed-address-pairs</code>. Without this,
+      Neutron's anti-spoofing drops traffic for an IP that does not belong to the port.</li>
+    <li><b>Bind it inside the VM.</b> <code>ip addr add 10.20.0.55/24 dev eth0</code>.</li>
+    <li><b>Create the team bridge.</b> A Docker network <code>br-team1</code> (e.g. <code>172.20.1.0/24</code>), plus a
+      <b>router container</b> (Caddy) attached only to that bridge.</li>
+    <li><b>NAT.</b> Inbound: <code>DNAT 10.20.0.55:80 &rarr; team1-router</code>. Outbound: <code>SNAT br-team1 &rarr; 10.20.0.55</code>,
+      so all traffic leaving the team carries the team's own IP (useful for logs, rate limiting and audit).</li>
+    <li><b>Hostname routing inside the team.</b> <code>web.team1&hellip;</code> &rarr; <code>web:3000</code>,
+      <code>api.team1&hellip;</code> &rarr; <code>api:8000</code>. Databases and caches stay internal on the bridge.</li>
+  </ol>
+
+  <h3>Why this design (alternatives we rejected)</h3>
+  <table>
+    <tr><th>Approach</th><th>Gateway routes to</th><th>Port bookkeeping</th><th>OpenStack IP per team</th></tr>
+    <tr><td>Docker published ports</td><td><code>VM:8081</code>, <code>VM:8082</code>&hellip;</td><td>Messy; ports get recycled too</td><td>No</td></tr>
+    <tr><td>Per-VM Traefik + Docker DNS</td><td><code>VM:80</code>, then container name</td><td>None</td><td>No</td></tr>
+    <tr><td>Literally bridging the Neutron IP into the team network (macvlan)</td><td>Each container IP</td><td>None</td><td>Yes, but needs an allowed pair per container; fragile</td></tr>
+    <tr class="chosen"><td><b>Neutron IP per team + NAT + team router (chosen)</b></td><td><code>team-IP:80</code></td><td>None</td><td>Yes</td></tr>
+  </table>
+  <div class="box why">
+    <b class="t">Why not expose arbitrary TCP ports (5432, 6379&hellip;)</b>
+    Hostname routing only works for HTTP (or TLS with SNI). Raw TCP has no hostname, so exposing it through one public IP would
+    bring back per-team public ports, and exposing databases is a security problem. The challenge only asks for subdomain routing.
+  </div>
+</section>
+
+<!-- ============ 5. STAGE 4 ============ -->
+<section>
+  <h2>5. Stage 4 &ndash; Redundant HA gateways</h2>
+  <p><b>Purpose:</b> route every subdomain to the right team IP, through one public IP, with no single point of failure.</p>
+  <figure>
+    <img src="diagrams/05-ha-gateways.png" alt="HA gateways with VRRP">
+    <figcaption>Figure 5 &ndash; Two gateways share one VIP. Keepalived moves the VIP to the backup within seconds if the master or its HAProxy dies; the floating IP follows.</figcaption>
+  </figure>
+
+  <h3>How a request flows</h3>
+  <ol class="steps">
+    <li>The browser resolves <code>team5.hackA.cstam.felcloud.tn</code>; a single <b>wildcard DNS</b> record points all of <code>*.cstam&hellip;</code> to the floating IP.</li>
+    <li>Neutron NATs the floating IP to the <b>VIP</b> <code>10.20.0.5</code>, a reserved port owned by no VM.</li>
+    <li>Whichever gateway currently holds the VIP (the VRRP master) receives the request.</li>
+    <li>HAProxy looks up the <code>Host</code> header in its <b>map file</b> and forwards to the team IP, e.g. <code>10.20.0.55:80</code>.</li>
+  </ol>
+
+  <h3>Choice of proxy</h3>
+  <table>
+    <tr><th></th><th>HAProxy</th><th>Nginx (OSS)</th><th>Traefik</th><th>Envoy</th></tr>
+    <tr><td>Config validation</td><td><code>haproxy -c</code></td><td><code>nginx -t</code></td><td>No real test step; bad config is silently ignored</td><td>Via control plane</td></tr>
+    <tr><td>Change routes without reload</td><td><b>Runtime API + maps</b></td><td>Only in paid Plus</td><td>File/HTTP provider</td><td>xDS</td></tr>
+    <tr><td>Demonstrable rollback</td><td>Explicit</td><td>Explicit</td><td>Hard to show</td><td>Complex</td></tr>
+    <tr><td>Per-team rate limiting (bonus)</td><td>Stick-tables, very strong</td><td><code>limit_req</code></td><td>Middleware</td><td>Yes</td></tr>
+    <tr class="chosen"><td><b>Verdict</b></td><td><b>Chosen</b></td><td>Good fallback</td><td>Not chosen</td><td>Overkill</td></tr>
+  </table>
+
+  <h3>Choice of failover mechanism</h3>
+  <table>
+    <tr><th></th><th>Keepalived (VRRP)</th><th>Octavia (FelCloud LBaaS)</th><th>DNS round-robin</th></tr>
+    <tr><td>Failover time</td><td>~1&ndash;3 s (sub-second possible)</td><td>Seconds to tens of seconds</td><td>Minutes (caching)</td></tr>
+    <tr><td>Our own work, demo-able crash</td><td>Yes: kill gateway-1 live</td><td>Black box</td><td>No</td></tr>
+    <tr><td>TLS termination</td><td>In HAProxy</td><td>Needs Barbican, which FelCloud does not offer</td><td>&mdash;</td></tr>
+    <tr class="chosen"><td><b>Verdict</b></td><td><b>Chosen</b></td><td>Not chosen</td><td>Rejected</td></tr>
+  </table>
+
+  <h3>OpenStack setup that makes VRRP work</h3>
+  <ol class="steps">
+    <li>Reserve the VIP: <code>openstack port create --network cstam-sandbox-net vip-port</code>.</li>
+    <li>Add the VIP address to <b>both</b> gateway ports' <code>allowed-address-pairs</code>.</li>
+    <li>Associate the floating IP with the VIP port.</li>
+    <li>Security group: allow VRRP (IP protocol 112) only between the two gateways; use <b>unicast</b> VRRP peers (multicast is often blocked in clouds).</li>
+    <li>Place the gateways in an <b>anti-affinity server group</b> so one hypervisor failure cannot take both down.</li>
+    <li>Keepalived <code>track_script</code> checks HAProxy every second: if HAProxy dies, the VIP moves even though the VM is alive.</li>
+  </ol>
+</section>
+
+<!-- ============ 6. STAGE 5 ============ -->
+<section>
+  <h2>6. Stage 5 &ndash; Zero-downtime reload and auto-rollback</h2>
+  <p><b>Purpose:</b> change routing while traffic flows, and make it impossible for a bad config to stay live.</p>
+  <figure>
+    <img src="diagrams/06-reload-rollback.png" alt="Validation and rollback pipeline">
+    <figcaption>Figure 6 &ndash; Two safety gates: validation before applying, health check after applying.</figcaption>
+  </figure>
+  <h3>The pipeline</h3>
+  <ol class="steps">
+    <li><b>Render</b> the config from a template. Team names are sanitized to <code>[a-z0-9-]</code>, so a name can never inject config.</li>
+    <li><b>Validate</b> with <code>haproxy -c -f new.cfg</code>. Invalid &rarr; rejected; the live config is never touched.</li>
+    <li><b>Apply</b>: route additions and removals use the <b>Runtime API</b> (<code>add map</code> / <code>del map</code>), which is instant
+      and needs no reload. Structural changes use HAProxy's <b>hitless reload</b> (master-worker mode keeps listening sockets).</li>
+    <li><b>Health check</b>: probe <code>/healthz</code> and a known route. Failure &rarr; restore the last-good config and reload (&lt; 1 s).</li>
+    <li><b>Commit</b>: save as last-good (versioned in the DB) and push the same change to the backup gateway, so failover never lands on stale config.</li>
+  </ol>
+  <div class="box ok">
+    <b class="t">What we will show in the demo</b>
+    Push a deliberately broken config &rarr; it is rejected at step 2; push a config that validates but breaks routing &rarr;
+    it is rolled back at step 4; meanwhile a load generator shows zero failed requests.
+  </div>
+</section>
+
+<!-- ============ 7. STAGE 6 ============ -->
+<section>
+  <h2>7. Stage 6 &ndash; Provisioning a team</h2>
+  <p><b>Purpose:</b> one API call turns a team registration into a reachable, isolated sandbox, in seconds.</p>
+  <figure>
+    <img src="diagrams/07-provisioning.png" alt="Provisioning swimlanes">
+    <figcaption>Figure 7 &ndash; Who does what when a team registers. Each lane is a separate component.</figcaption>
+  </figure>
+  <ol class="steps">
+    <li><code>POST /teams</code> arrives at the control-plane API.</li>
+    <li><b>IPAM</b> leases a free IP from its pool under a database row lock, so 10+ concurrent registrations never get the same IP.</li>
+    <li><b>Neutron</b>: create the reserved port with that fixed IP.</li>
+    <li><b>Neutron</b>: add the IP to the hackathon host's allowed-address-pairs.</li>
+    <li><b>Host agent</b>: bind the IP, create <code>br-teamN</code>, start the team router, install NAT and isolation rules.</li>
+    <li><b>Gateways</b>: add the map entry on both gateways via the Stage 5 pipeline.</li>
+    <li>Health check passes &rarr; status <b>ACTIVE</b>, lease timer (TTL) starts.</li>
+  </ol>
+  <div class="box why">
+    <b class="t">Failure handling</b>
+    If any step fails, the completed steps are undone in reverse order and the IP is released, so no half-built sandbox is left
+    behind. The reconciler (Stage 9) also repairs anything left inconsistent by a crash mid-way.
+  </div>
+  <div class="box note">
+    <b class="t">Why this is fast enough for the stress test</b>
+    No VM boots during team provisioning: the hackathon host is already running. Each step is one API call or a few kernel
+    operations, so a team is typically live within a few seconds, and steps for different teams run in parallel.
+  </div>
+</section>
+
+<!-- ============ 8. STAGE 7 ============ -->
+<section>
+  <h2>8. Stage 7 &ndash; Teardown and IP recycling (IPAM)</h2>
+  <p><b>Purpose:</b> free resources immediately when a sandbox expires, without ever sending a team's traffic to another team.</p>
+  <figure>
+    <img src="diagrams/08-teardown-ipam.png" alt="Teardown order and IP states">
+    <figcaption>Figure 8 &ndash; Left: the strict teardown order. Right: the lifecycle of an IP in our IPAM.</figcaption>
+  </figure>
+
+  <h3>Nothing cleans itself up automatically</h3>
+  <table>
+    <tr><th>Resource</th><th>What happens on its own</th><th>Consequence</th></tr>
+    <tr><td>Gateway route</td><td>Nothing: HAProxy knows nothing about OpenStack</td><td>The route keeps pointing at the old IP</td></tr>
+    <tr><td>Neutron IP</td><td>Freed <b>immediately</b> when its port is deleted; can be handed to the next port at once</td><td>Next team may get the same IP while the old route still exists</td></tr>
+    <tr><td>Pre-created port</td><td>Deleting a VM only <b>detaches</b> a port we created ourselves</td><td>The IP leaks unless we delete the port explicitly</td></tr>
+    <tr><td>DNS</td><td>Wildcard record: nothing to delete</td><td>Gateway must answer 404 for unknown subdomains</td></tr>
+  </table>
+
+  <div class="box warn">
+    <b class="t">The bug the strict order prevents</b>
+    If the port were deleted before the route, Neutron could give <code>10.20.0.55</code> to the next team while the gateway still
+    sends <code>team5&hellip;</code> there. Team 5's URL would then serve another team's app. The rule: <b>an IP may only return to the
+    pool once nothing points at it</b>, and a short <b>quarantine</b> (60 s) absorbs in-flight connections and caches.
+  </div>
+
+  <h3>Our IPAM engine on top of Neutron</h3>
+  <ul>
+    <li>Tracks every IP's state: <code>FREE &rarr; LEASED &rarr; ACTIVE &rarr; RELEASING &rarr; QUARANTINE &rarr; FREE</code>.</li>
+    <li>Requests <b>specific</b> free IPs from Neutron (<code>--fixed-ip ip-address=&hellip;</code>) so quarantined IPs are never reused early.</li>
+    <li>Short leases with TTL; the reconciler expires them and triggers teardown automatically.</li>
+    <li>Metrics for the benchmark report: lease time, release time, time from teardown to IP reusable.</li>
+  </ul>
+</section>
+
+<!-- ============ 9. STAGE 8 ============ -->
+<section>
+  <h2>9. Stage 8 &ndash; Security and isolation</h2>
+  <p><b>Purpose:</b> make sure a team can only reach its own sandbox, and nobody can reach the platform's management layer.</p>
+  <figure>
+    <img src="diagrams/09-security.png" alt="Five security layers">
+    <figcaption>Figure 9 &ndash; Defence in depth: five independent layers, each mapped to the attack paths it stops.</figcaption>
+  </figure>
+  <h3>Mapping to the challenge</h3>
+  <table>
+    <tr><th>Challenge requirement</th><th>Covered by</th></tr>
+    <tr><td>Block inter-sandbox traffic</td><td>L3: separate bridges (Docker isolation chains) + <code>DOCKER-USER</code> drop rules; L2: hosts accept traffic only from the gateway security group</td></tr>
+    <tr><td>Protect the gateway management layer from sandboxes</td><td>L2: gateway SSH/Runtime API only from the control-plane security group; L3: drop sandbox traffic to gateway, control-plane and metadata IPs; L1: HAProxy admin socket bound locally</td></tr>
+    <tr><td>Lifecycle security (sanitize IP allocations)</td><td>Stage 7 order + quarantine; reconciler removes orphans</td></tr>
+    <tr><td>Isolated sandboxes</td><td>L4: <code>cap-drop ALL</code>, <code>no-new-privileges</code>, read-only root, user-namespace remapping, CPU/RAM/PID limits per team slice, optional gVisor</td></tr>
+    <tr><td>Config integrity</td><td>L5: names sanitized; Stage 5 validation and rollback</td></tr>
+  </table>
+  <div class="box note">
+    <b class="t">One finding to fix</b>
+    The existing <code>sbx-f0699704</code> security group is described as "HTTP from gateways" but has <b>no ingress rules at all</b>.
+    Our security groups will be created with explicit rules referencing the gateway group (<code>remote_group_id</code>).
+  </div>
+</section>
+
+<!-- ============ 10. STAGE 9 ============ -->
+<section>
+  <h2>10. Stage 9 &ndash; Control plane and admin dashboard</h2>
+  <p><b>Purpose:</b> one place that decides, executes, remembers and shows everything.</p>
+  <figure>
+    <img src="diagrams/10-control-plane.png" alt="Control plane">
+    <figcaption>Figure 10 &ndash; The API drives OpenStack, the host agents and the gateway agents; the reconciler keeps reality equal to the database.</figcaption>
+  </figure>
+  <table>
+    <tr><th>Component</th><th>Role</th></tr>
+    <tr><td>API (FastAPI)</td><td>Auth, team and hackathon CRUD, IPAM, orchestration of Stages 5&ndash;7</td></tr>
+    <tr><td>PostgreSQL</td><td>Source of truth: teams, leases, IP states, routes, config versions (for rollback)</td></tr>
+    <tr><td>Reconciler / workers</td><td>Lease expiry, teardown pipeline, drift repair (orphan ports, stale routes, dead containers)</td></tr>
+    <tr><td>Host agent (per hackathon VM)</td><td>Docker networks, router containers, iptables, IP binding; reached over mTLS</td></tr>
+    <tr><td>Gateway agent (x2)</td><td>Map updates, validation, reload, rollback; reports health and VRRP state</td></tr>
+    <tr><td>Dashboard (React)</td><td>Active sandboxes and their OpenStack IPs, gateway health (master/backup), subdomain map, live traffic logs, and buttons for spin-up, teardown, manual failover and manual rollback</td></tr>
+  </table>
+  <div class="box why">
+    <b class="t">Why a reconciler</b>
+    Provisioning touches four systems. If the control plane crashes halfway, something is left inconsistent. Instead of hoping
+    every failure path is handled, the reconciler continuously compares the database with Neutron, the gateways and Docker,
+    and fixes the difference. This is also what makes the teardown "automated" for the Phase 2 score.
+  </div>
+</section>
+
+<!-- ============ 11. FINAL ============ -->
+<section class="final">
+  <h2>11. Final solution &ndash; the architecture we will build</h2>
+  <figure>
+    <img src="diagrams/11-final-architecture.png" alt="Final architecture">
+    <figcaption>Figure 11 &ndash; <b>Final solution.</b> All stages combined: one public IP, a redundant gateway pair, Docker hosts per hackathon with a Neutron IP per team, and the control plane.</figcaption>
+  </figure>
+
+  <h3>End-to-end walkthroughs</h3>
+  <p><b>A visitor opens a team app.</b> DNS (wildcard) &rarr; floating IP &rarr; VIP on gateway-1 &rarr; HAProxy maps
+  <code>team1.hackA&hellip;</code> to <code>10.20.0.55:80</code> &rarr; host A DNATs to the team1 router &rarr; router picks the app by hostname.</p>
+  <p><b>A team registers.</b> API &rarr; IPAM lease &rarr; Neutron reserved port + allowed pair &rarr; host agent builds the bridge,
+  router, NAT and rules &rarr; both gateways get a validated map entry &rarr; ACTIVE in seconds.</p>
+  <p><b>Gateway-1 crashes.</b> Keepalived on gateway-2 stops receiving VRRP adverts &rarr; claims the VIP within ~1&ndash;3 s &rarr;
+  the floating IP follows the VIP &rarr; gateway-2 already has identical maps &rarr; traffic continues.</p>
+  <p><b>A sandbox expires.</b> Reconciler &rarr; route removed on both gateways &rarr; containers, bridge, rules removed &rarr;
+  allowed pair removed &rarr; port deleted &rarr; IP quarantined, then FREE.</p>
+</section>
+
+<section class="final">
+  <h3>Requirement coverage</h3>
+  <table>
+    <tr><th>Challenge item</th><th>Points</th><th>Where in the design</th></tr>
+    <tr><td>Automated OpenStack sandbox provisioning</td><td>15</td><td>Stages 2, 3, 6</td></tr>
+    <tr><td>Dual redundant HA gateways</td><td>15</td><td>Stage 4</td></tr>
+    <tr><td>Automated IPAM &amp; reclamation</td><td>10</td><td>Stages 3, 7</td></tr>
+    <tr><td>Zero-downtime reload &amp; auto-rollback</td><td>10</td><td>Stage 5</td></tr>
+    <tr><td>Concurrent provisioning stress test (10+)</td><td>15</td><td>Stage 6 (DB-locked IPAM, no VM boot per team)</td></tr>
+    <tr><td>Automated teardown &amp; lifecycle security</td><td>10</td><td>Stage 7, reconciler</td></tr>
+    <tr><td>Network isolation &amp; access safeguards</td><td>5</td><td>Stage 8</td></tr>
+    <tr><td>Admin dashboard</td><td>10</td><td>Stage 9</td></tr>
+    <tr><td>Bonus: TLS / rate limiting / maintenance page</td><td>+2 each</td><td>HAProxy (wildcard certificate, stick-tables, errorfile/backup server)</td></tr>
+    <tr><td>Bonus: OpenStack-native orchestration</td><td>+2</td><td>Optional: Heat templates for the gateway pair and host VMs</td></tr>
+  </table>
+
+  <h3>Capacity within the current quota</h3>
+  <table>
+    <tr><th>VM</th><th>Flavor</th><th>Count</th><th>vCPU</th><th>RAM</th></tr>
+    <tr><td>Gateways</td><td>G0.basic.1c2g</td><td>2</td><td>2</td><td>4 GB</td></tr>
+    <tr><td>Control plane</td><td>G0.basic.2c4g</td><td>1</td><td>2</td><td>4 GB</td></tr>
+    <tr><td>Hackathon hosts</td><td>G0.basic.4c8g</td><td>2</td><td>8</td><td>16 GB</td></tr>
+    <tr><td>Already existing (sbx, adam)</td><td>1c1g, shared 4c4g</td><td>2</td><td>5</td><td>5 GB</td></tr>
+    <tr><th>Total vs quota</th><th></th><th>7 / 10</th><th>17 / 20</th><th>29 / 50 GB</th></tr>
+  </table>
+  <p class="small">A third hackathon host fits if the stopped <code>adam</code> VM is deleted (it still counts against the quota while SHUTOFF).</p>
+
+  <div class="box ok">
+    <b class="t">Why this is the right final design</b>
+    <ul>
+      <li><b>No single point of failure on the shared path</b>: the only component every team depends on (the gateway) is redundant and fails over automatically.</li>
+      <li><b>Every team IP is a real Neutron IP</b> with a lease, a state and a safe release, which is exactly what the IPAM items score.</li>
+      <li><b>No port juggling</b>: everything routes by hostname to <code>IP:80</code>.</li>
+      <li><b>Fits the quota</b> while handling 10+ concurrent teams in seconds.</li>
+      <li><b>The scored work is ours and visible</b>: VRRP failover, validated reloads, rollback, iptables isolation, IPAM.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ 12. RISKS ============ -->
+<section>
+  <h2>12. Risks, open questions and next steps</h2>
+  <h3>Things to test on FelCloud first</h3>
+  <table>
+    <tr><th>Risk</th><th>Why it matters</th><th>Test</th></tr>
+    <tr><td>Floating IP on an unbound VIP port</td><td>FelCloud runs OVN (we saw a <code>network:distributed</code> port); floating IPs on ports owned by no VM must work for the VIP design</td><td>Create router, VIP port, floating IP; move the VIP between two test VMs</td></tr>
+    <tr><td>VRRP between gateways</td><td>Needs IP protocol 112 allowed and unicast peers</td><td>Two small VMs with Keepalived; kill one, measure failover time</td></tr>
+    <tr><td>Allowed-address-pairs on host ports</td><td>The whole per-team IP design depends on it</td><td>Add a secondary IP to a VM, reach it from another VM</td></tr>
+  </table>
+  <h3>Questions for the FelCloud mentors</h3>
+  <ul>
+    <li>Can we get a wildcard DNS record <code>*.cstam.felcloud.tn</code>, and API access for a Let's Encrypt DNS-01 challenge (wildcard TLS bonus)?</li>
+    <li>Is a quota increase possible (would also allow one-VM-per-team as a premium isolation mode)?</li>
+    <li>Who created <code>sbx-f0699704</code>, and is there an existing CSTAM tool we should build on?</li>
+  </ul>
+  <h3>Build order</h3>
+  <ol class="steps">
+    <li>Router + floating IP + VIP experiment (Stage 1 and the risks above).</li>
+    <li>Gateway pair with Keepalived and HAProxy maps; failover demo (Stage 4).</li>
+    <li>Validation and rollback pipeline (Stage 5).</li>
+    <li>One hackathon host with the per-team network recipe, done by hand, then scripted as the host agent (Stage 3).</li>
+    <li>Control plane: API, IPAM, provisioning and teardown pipelines, reconciler (Stages 6, 7, 9).</li>
+    <li>Security rules and hardening (Stage 8), then the stress test and benchmark report.</li>
+    <li>Dashboard, documentation, demo video.</li>
+  </ol>
+</section>
+
+</body>
+</html>
