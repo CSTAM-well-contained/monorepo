@@ -1,0 +1,18 @@
+# Copy to Pulumi.prod.yaml (or use `pulumi config set ...`). No secrets in this file:
+# OpenStack credentials come from ~/.config/openstack/clouds.yaml (cloud "cstam").
+config:
+  openstack:cloud: cstam
+  # SSH keys: every infra/ssh-keys/*.pub file is installed on every VM.
+  # cstam-infra:adminCidr: 0.0.0.0/0               # who reaches SSH/dashboard on cp (default: anyone, key-only)
+  # Optional (defaults shown):
+  # cstam-infra:network: cstam-sandbox-net
+  # cstam-infra:subnet: cstam-sandbox-subnet
+  # cstam-infra:externalNetwork: INTERNET
+  # cstam-infra:image: "Ubuntu 24.04 LTS - Noble Numbat"
+  # cstam-infra:gwFlavor: G0.basic.1c2g
+  # cstam-infra:cpFlavor: G0.basic.2c4g
+  # cstam-infra:hostFlavor: G0.basic.4c8g
+  # cstam-infra:serverGroupPolicy: anti-affinity    # or soft-anti-affinity (see Step 2 pitfalls)
+  # cstam-infra:teamNetMode: podnic                 # podnic | aap | aap-cidr (decided at Gate G1)
+  # cstam-infra:withHostB: "false"
+  # cstam-infra:bootVolumeGB: "0"                   # > 0 if FelCloud requires boot from volume

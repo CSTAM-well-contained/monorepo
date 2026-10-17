@@ -1,0 +1,23 @@
+#cloud-config
+ssh_pwauth: false          # key-only SSH: passwords are refused
+package_update: true
+packages: [keepalived, socat, chrony, curl, jq, iputils-arping, tcpdump, nftables, software-properties-common]
+write_files:
+  - path: /etc/sysctl.d/90-cstam-gw.conf
+    content: |
+      net.ipv4.ip_nonlocal_bind = 1
+      net.core.somaxconn = 4096
+      net.ipv4.ip_local_port_range = 10240 65000
+      net.ipv4.conf.all.arp_ignore = 1
+      net.ipv4.conf.all.arp_announce = 2
+  - path: /etc/cstam/role
+    content: "gateway\n"
+runcmd:
+  - sysctl --system
+  - add-apt-repository -y ppa:vbernat/haproxy-3.2
+  - apt-get update
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y 'haproxy=3.2.*'
+  - useradd -r -s /usr/sbin/nologin keepalived_script || true
+  - useradd -r -s /usr/sbin/nologin -G haproxy cstam || true
+  - install -d -o cstam -g haproxy -m 0775 /run/cstam /var/lib/cstam
+  - systemctl enable --now chrony

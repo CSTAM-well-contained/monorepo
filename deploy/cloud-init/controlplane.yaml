@@ -1,0 +1,13 @@
+#cloud-config
+ssh_pwauth: false          # key-only SSH: passwords are refused
+package_update: true
+packages: [postgresql-16, chrony, jq, curl, nftables, fail2ban]   # fail2ban: SSH is reachable from the internet (key-only)
+write_files:
+  - path: /etc/cstam/role
+    content: "controlplane\n"
+runcmd:
+  - useradd -r -s /usr/sbin/nologin cstam || true
+  - install -d -o cstam -g cstam -m 0750 /etc/cstam /var/lib/cstam
+  - sudo -u postgres psql -c "CREATE ROLE cstam LOGIN" || true
+  - sudo -u postgres createdb -O cstam cstam || true
+  - systemctl enable --now chrony postgresql fail2ban

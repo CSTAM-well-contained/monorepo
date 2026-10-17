@@ -1,0 +1,41 @@
+#cloud-config
+ssh_pwauth: false          # key-only SSH: passwords are refused
+package_update: true
+packages: [ca-certificates, curl, gnupg, chrony, jq, nftables, iproute2, iputils-arping, conntrack, ethtool, xfsprogs]
+write_files:
+  - path: /etc/sysctl.d/90-cstam-host.conf
+    content: |
+      net.ipv4.ip_forward = 1
+      net.ipv4.conf.all.rp_filter = 1
+      net.ipv4.conf.default.rp_filter = 1
+      net.ipv4.conf.all.send_redirects = 0
+      net.ipv4.conf.all.accept_redirects = 0
+      net.ipv6.conf.all.disable_ipv6 = 1
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+        "bridge": "none",
+        "mtu": 1442,
+        "iptables": true,
+        "ip-forward": true,
+        "userland-proxy": false,
+        "live-restore": true,
+        "no-new-privileges": true,
+        "exec-opts": ["native.cgroupdriver=systemd"],
+        "default-address-pools": [{ "base": "172.20.0.0/16", "size": 24 }],
+        "dns": ["1.1.1.1", "9.9.9.9"],
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "10m", "max-file": "3" }
+      }
+  - path: /etc/cstam/role
+    content: "host\n"
+runcmd:
+  - sysctl --system
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list
+  - apt-get update
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io
+  - systemctl enable --now docker chrony
+  - docker pull registry.k8s.io/pause:3.10
+  - docker pull traefik/whoami:latest

@@ -1,0 +1,14 @@
+name: cstam-infra
+runtime: go
+# Shared state for the whole team: FelCloud object storage (Ceph RGW, S3 API).
+# Credentials come from the [cstam] profile in ~/.aws/credentials (see docs/team-setup.md).
+backend:
+  url: s3://cstam-pulumi-state?endpoint=https://object-store.api.felcloud.io&s3ForcePathStyle=true&region=default&profile=cstam
+description: >
+  CSTAM x FelCloud permanent infrastructure (router, security groups, VIP and
+  infrastructure ports, server group, VMs, floating IPs). Team ports are NOT
+  managed here: cpd creates and deletes them at runtime.
+config:
+  pulumi:tags:
+    value:
+      project: cstam

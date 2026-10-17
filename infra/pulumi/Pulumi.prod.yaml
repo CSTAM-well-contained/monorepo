@@ -1,0 +1,5 @@
+encryptionsalt: v1:hQ6G4fKsSKs=:v1:nDGEpp5IqnQxzdHV:upciFCpncTY40Olf/sM3JS6fM3wdsw==
+config:
+  openstack:cloud: cstam
+  cstam-infra:teamNetMode: podnic
+  cstam-infra:serverGroupPolicy: soft-anti-affinity
