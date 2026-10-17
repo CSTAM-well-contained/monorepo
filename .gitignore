@@ -1,0 +1,23 @@
+# secrets: never commit
+.secrets/
+*.key
+*.pem
+*.p12
+clouds.yaml
+.env
+*.env
+!deploy/env/*.env.example
+!infra/topology.env
+# build output
+/bin/
+/infra/pulumi/pulumi
+/dist/
+web/node_modules/
+web/dist/
+coverage.out
+# local state
+/tmp/
+bench/results/
+.claude/settings.local.json
+# generated documents (rebuild with docs/guide/tools/build.sh and build-web.sh)
+docs/guide/out/

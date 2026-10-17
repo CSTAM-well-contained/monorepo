@@ -1,0 +1,3 @@
+# reviewed false positives (example UUID in an HTTP sample; a Go constant name)
+docs/guide/chapters/07-go-architecture.md:generic-api-key:182
+docs/guide/chapters/22-step13-bonuses.md:generic-api-key:232
