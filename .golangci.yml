@@ -1,0 +1,23 @@
+version: "2"
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - gosec
+    - revive
+    - errorlint
+    - contextcheck
+    - bodyclose
+    - sqlclosecheck
+    - depguard
+  settings:
+    depguard:
+      rules:
+        agents-no-db-no-cloud:
+          files: ["**/internal/gw/**", "**/internal/host/**", "**/cmd/gwagent/**", "**/cmd/hostagent/**"]
+          deny:
+            - pkg: github.com/jackc/pgx/v5
+              desc: agents never talk to the database
+            - pkg: github.com/gophercloud/gophercloud/v2
+              desc: agents have no OpenStack credentials (only cpd does)
