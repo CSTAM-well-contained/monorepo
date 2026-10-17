@@ -20,4 +20,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.25.x" }
+      # the gitleaks GitHub Action needs a paid license for organization repos; the CLI is free
+      - run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+      - run: gitleaks detect --redact -v
