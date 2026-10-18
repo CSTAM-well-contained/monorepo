@@ -28,5 +28,5 @@ make infra-check                  # Pulumi program: build + read-only preview of
 New teammate: read [`docs/README.md`](docs/README.md), then do [`docs/team/README.md`](docs/team/README.md).
 
 ## Status
-Step 0 (repository) done. Step 2 (infrastructure) deployed except the floating IPs, which are
-waiting for FelCloud. See [`docs/notebook/experiments.md`](docs/notebook/experiments.md).
+Infrastructure deployed except the floating IPs (waiting for FelCloud). Gateway reload/rollback
+and keepalived failover built and tested locally. What is left: [`docs/HANDOFF.md`](docs/HANDOFF.md).

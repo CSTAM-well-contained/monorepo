@@ -308,7 +308,6 @@ vrrp_script chk_gateway {
 vrrp_track_process haproxy_proc {
     process haproxy
     quorum 1
-    delay 0
 }
 
 # manual failover button: the agent writes 1 into this file -> FAULT -> the peer takes the VIP
@@ -330,9 +329,6 @@ vrrp_instance VI_GW {
     }
     virtual_ipaddress {
         10.20.0.10/32 dev ens3 label ens3:vip
-    }
-    track_interface {
-        ens3
     }
     track_script {
         chk_gateway
@@ -420,7 +416,7 @@ Split brain = both nodes believe they are master (adverts lost both ways). On OV
 Mitigations, in order:
 
 1. The `cstam-vrrp` rule (proto 112 between members) must be right. Check on the backup: `sudo tcpdump -n -c 4 'ip proto 112'` shows one packet every 0.5 s.
-2. `track_interface ens3`: a node whose NIC goes down enters FAULT.
+2. The instance interface (ens3) is tracked implicitly: a node whose NIC goes down enters FAULT. (keepalived 2.3 refuses an explicit `track_interface` on its own interface.)
 3. Both agents report their VRRP state. If the control plane sees **two MASTERs for more than 2 s**, it sets `force_backup=true` in the desired state of the node with the lower priority; that agent writes `1` into `/run/cstam/force-backup`. Implemented in Step 4 (agent) and Step 7 (control plane).
 4. Optional: add to `chk_gateway` a test that the router answers (`arping -c1 -w1 -I ens3 10.20.0.1`); a node cut off from the router stops claiming the VIP.
 

@@ -2,6 +2,7 @@
 
 | Folder | What | When to read it |
 |---|---|---|
+| [`HANDOFF.md`](HANDOFF.md) | **Where the work stands and what is left** | Start here when you pick up the work |
 | [`challenge/brief.md`](challenge/brief.md) | The official CSTAM-FELCLOUD brief and scoring | First, once |
 | [`guide/`](guide/) | **The implementation guide**: design decisions and the step-by-step build plan (Go, Pulumi) | The reference for all work |
 | [`team/README.md`](team/README.md) | One-time setup for a new teammate (SSH key, OpenStack, shared Pulumi state) | Before your first day |

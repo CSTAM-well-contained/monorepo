@@ -77,7 +77,7 @@ Test it (read-only):
 ```bash
 export OS_CLOUD=cstam
 openstack token issue -f value -c expires                     # a date in the future
-openstack server list -f value -c Name -c Status              # cstam-cp, cstam-gw1, cstam-gw2, cstam-host-a
+openstack server list -f value -c Name -c Status              # cstam-cp, cstam-gw1, cstam-gw2
 ```
 
 ## 4. Your own key for the shared Pulumi state
@@ -146,9 +146,7 @@ Host cstam-gw1
     HostName 10.20.0.11
 Host cstam-gw2
     HostName 10.20.0.12
-Host cstam-host-a
-    HostName 10.20.0.21
-Host cstam-gw1 cstam-gw2 cstam-host-a
+Host cstam-gw1 cstam-gw2
     User ubuntu
     IdentityFile ~/.ssh/cstam_ed25519
     ProxyJump cstam-cp
@@ -176,7 +174,7 @@ Code to run Pulumi for you, create `.claude/settings.local.json` (git-ignored, p
 ## Checklist
 
 - [ ] `make lint test build` passes
-- [ ] `openstack server list` shows our 4 VMs
+- [ ] `openstack server list` shows our 3 platform VMs (hackathon hosts appear only while a hackathon runs)
 - [ ] `pulumi preview` in `infra/pulumi` says no changes
 - [ ] your key is in `infra/ssh-keys/` (merged)
 - [ ] `ssh cstam-gw1 hostname` works (once floating IPs exist)
