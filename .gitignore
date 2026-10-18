@@ -26,3 +26,6 @@ docs/guide/out/
 /to-emna/
 /to-emna.zip
 /to-emna-steps.pdf
+
+# personal Claude Code rules (autonomous mode on a teammate machine)
+CLAUDE.local.md
