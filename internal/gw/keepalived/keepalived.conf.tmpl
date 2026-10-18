@@ -1,0 +1,64 @@
+# Rendered by gwagent. Do not edit: the next apply overwrites it.
+global_defs {
+    router_id {{.RouterID}}
+    vrrp_version 3
+    enable_script_security
+    script_user {{.ScriptUser}}
+    vrrp_garp_master_delay 1
+    vrrp_garp_master_repeat 3
+    vrrp_garp_master_refresh 10
+    vrrp_garp_master_refresh_repeat 1
+    vrrp_higher_prio_send_advert true
+}
+
+# end to end: the agent says "ready" AND HAProxy answers through its real frontend
+vrrp_script chk_gateway {
+    script "{{.CheckScript}}"
+    interval 1
+    timeout 1
+    fall 2
+    rise 2
+    init_fail
+}
+{{- if .TrackProcess}}
+
+# instant: is a haproxy process alive? (netlink process events, no polling)
+vrrp_track_process haproxy_proc {
+    process haproxy
+    quorum 1
+}
+{{- end}}
+
+# manual failover: the agent writes 1 here -> FAULT -> the peer takes the VIP
+vrrp_track_file manual_failover {
+    file {{.ForceBackupFile}}
+    init_file 0 overwrite
+}
+
+vrrp_instance VI_GW {
+    state BACKUP
+    nopreempt
+    interface {{.Interface}}
+    virtual_router_id {{.VRID}}
+    priority {{.Priority}}
+    advert_int {{.AdvertInt}}
+    unicast_src_ip {{.SrcIP}}
+    unicast_peer {
+        {{.PeerIP}}
+    }
+    virtual_ipaddress {
+        {{.VIP}}/32 dev {{.Interface}} label {{.Interface}}:vip
+    }
+    track_script {
+        chk_gateway
+    }
+{{- if .TrackProcess}}
+    track_process {
+        haproxy_proc weight 0
+    }
+{{- end}}
+    track_file {
+        manual_failover weight 0
+    }
+    notify "{{.NotifyScript}}" root
+}
