@@ -12,9 +12,9 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
-// Servers are the 4-5 permanent VMs.
+// Servers are the 3 always-on VMs. Hackathon hosts are not here: cpd creates them on demand.
 type Servers struct {
-	GW1, GW2, CP, HostA, HostB *compute.Instance
+	GW1, GW2, CP *compute.Instance
 }
 
 // cloudInitDir is relative to this Pulumi project (infra/pulumi).
@@ -96,14 +96,6 @@ func newServers(ctx *pulumi.Context, s Settings, p *Ports) (*Servers, error) {
 	}
 	if sv.CP, err = boot("cstam-cp", s.CPFlavor, p.CP, "controlplane.yaml", "controlplane", pulumi.IDOutput{}); err != nil {
 		return nil, err
-	}
-	if sv.HostA, err = boot("cstam-host-a", s.HostFlavor, p.HostA, "host.yaml", "host", pulumi.IDOutput{}); err != nil {
-		return nil, err
-	}
-	if s.WithHostB {
-		if sv.HostB, err = boot("cstam-host-b", s.HostFlavor, p.HostB, "host.yaml", "host", pulumi.IDOutput{}); err != nil {
-			return nil, err
-		}
 	}
 	return &sv, nil
 }

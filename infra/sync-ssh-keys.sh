@@ -11,8 +11,8 @@ cd "$(dirname "$0")"
 
 keys=$(cat ssh-keys/*.pub)
 [ -n "$keys" ] || { echo "no keys in infra/ssh-keys" >&2; exit 1; }
-hosts=(cstam-cp cstam-gw1 cstam-gw2 cstam-host-a)
-[ "${WITH_HOST_B:-0}" = 1 ] && hosts+=(cstam-host-b)
+# platform VMs only: on-demand hackathon hosts get the keys from cloud-init when cpd creates them
+hosts=(cstam-cp cstam-gw1 cstam-gw2)
 
 for h in "${hosts[@]}"; do
   printf '%s: ' "$h"

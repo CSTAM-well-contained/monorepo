@@ -7,12 +7,15 @@ import "net/netip"
 // The IP plan of cstam-sandbox-net. infra/topology.env (shell) and the topo
 // variable in infra/pulumi/config.go must stay identical to these values.
 var (
-	Subnet        = netip.MustParsePrefix("10.20.0.0/24")
-	Router        = netip.MustParseAddr("10.20.0.1")
-	ControlIP     = netip.MustParseAddr("10.20.0.5")
-	VIP           = netip.MustParseAddr("10.20.0.10")
-	Gateways      = []netip.Addr{netip.MustParseAddr("10.20.0.11"), netip.MustParseAddr("10.20.0.12")}
-	Hosts         = []netip.Addr{netip.MustParseAddr("10.20.0.21"), netip.MustParseAddr("10.20.0.22")}
+	Subnet    = netip.MustParsePrefix("10.20.0.0/24")
+	Router    = netip.MustParseAddr("10.20.0.1")
+	ControlIP = netip.MustParseAddr("10.20.0.5")
+	VIP       = netip.MustParseAddr("10.20.0.10")
+	Gateways  = []netip.Addr{netip.MustParseAddr("10.20.0.11"), netip.MustParseAddr("10.20.0.12")}
+	// Hackathon hosts are created on demand by cpd, one or more per hackathon, and get a
+	// fixed IP from this range (11 hosts at most, far above the instance quota).
+	HostRangeLo   = netip.MustParseAddr("10.20.0.21")
+	HostRangeHi   = netip.MustParseAddr("10.20.0.31")
 	TeamPoolLo    = netip.MustParseAddr("10.20.0.32")
 	TeamPoolHi    = netip.MustParseAddr("10.20.0.191")
 	LabPoolLo     = netip.MustParseAddr("10.20.0.192")

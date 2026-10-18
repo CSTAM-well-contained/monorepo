@@ -11,8 +11,5 @@ config:
   # cstam-infra:image: "Ubuntu 24.04 LTS - Noble Numbat"
   # cstam-infra:gwFlavor: G0.basic.1c2g
   # cstam-infra:cpFlavor: G0.basic.2c4g
-  # cstam-infra:hostFlavor: G0.basic.4c8g
   # cstam-infra:serverGroupPolicy: anti-affinity    # or soft-anti-affinity (see Step 2 pitfalls)
-  # cstam-infra:teamNetMode: podnic                 # podnic | aap | aap-cidr (decided at Gate G1)
-  # cstam-infra:withHostB: "false"
   # cstam-infra:bootVolumeGB: "0"                   # > 0 if FelCloud requires boot from volume

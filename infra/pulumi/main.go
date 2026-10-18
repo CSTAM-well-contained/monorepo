@@ -5,8 +5,10 @@
 //	pulumi preview      # what would change, read-only
 //	pulumi up           # apply after you read the plan
 //
-// It manages ONLY resources it created (router, 5 security groups, VIP and
-// infrastructure ports, server group, VMs, floating IPs). The FelCloud network, subnet
+// It manages ONLY the always-on platform it created: router, 5 security groups, VIP and
+// infrastructure ports, gateway server group, gw1, gw2, cp, floating IPs.
+// Hackathon hosts are NOT here: cpd creates a host VM shortly before a hackathon starts and
+// deletes it after the end (fixed IPs from 10.20.0.21-.31, security group cstam-host). The FelCloud network, subnet
 // and external network are looked up read-only. Team ports are never managed here:
 // cpd creates, attaches and deletes them at runtime.
 package main
@@ -72,15 +74,9 @@ func main() {
 		ctx.Export("networkId", pulumi.String(ex.NetworkID))
 		ctx.Export("subnetId", pulumi.String(ex.SubnetID))
 		ctx.Export("vipPortId", ports.VIP.ID())
-		ctx.Export("hostAPortId", ports.HostA.ID())
-		ctx.Export("hostAServerId", servers.HostA.ID())
+		ctx.Export("hostSecGroupId", sg.Host.ID())
 		ctx.Export("teamSecGroupId", sg.Team.ID())
 		ctx.Export("gwSecGroupId", sg.GW.ID())
-		if ports.HostB != nil {
-			ctx.Export("hostBPortId", ports.HostB.ID())
-			ctx.Export("hostBServerId", servers.HostB.ID())
-		}
-		ctx.Export("teamNetMode", pulumi.String(s.TeamNetMode))
 		return nil
 	})
 }

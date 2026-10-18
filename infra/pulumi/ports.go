@@ -9,7 +9,7 @@ import (
 // and the firewall, (2) security groups are set before the VM boots (the "default"
 // group is never attached), (3) gateway ports list the VIP from the start.
 type Ports struct {
-	VIP, GW1, GW2, CP, HostA, HostB *networking.Port
+	VIP, GW1, GW2, CP *networking.Port
 }
 
 func newPorts(ctx *pulumi.Context, s Settings, ex existing, sg *SecGroups, routerIf pulumi.Resource) (*Ports, error) {
@@ -69,26 +69,6 @@ func newPorts(ctx *pulumi.Context, s Settings, ex existing, sg *SecGroups, route
 		return nil, err
 	}
 
-	// Host ports. In "aap-cidr" mode (fallback chosen at Gate G1) each host owns one aligned
-	// /27 of the team pool. In "aap" mode the pairs are written at runtime by cpd's AAP
-	// syncer, so Pulumi must ignore that field or it would erase them on the next `up`.
-	hostSpec := func(name, ip, cidr string) spec {
-		sp := spec{name: name, ip: ip, desc: "hackathon host", groups: []*networking.SecGroup{sg.Host}}
-		switch s.TeamNetMode {
-		case "aap-cidr":
-			sp.pairs = []string{cidr}
-		case "aap":
-			sp.extra = append(sp.extra, pulumi.IgnoreChanges([]string{"allowedAddressPairs"}))
-		}
-		return sp
-	}
-	if p.HostA, err = mk(hostSpec("cstam-host-a-port", topo.HostAIP, "10.20.0.64/27")); err != nil {
-		return nil, err
-	}
-	if s.WithHostB {
-		if p.HostB, err = mk(hostSpec("cstam-host-b-port", topo.HostBIP, "10.20.0.96/27")); err != nil {
-			return nil, err
-		}
-	}
+	// No host ports here: hackathon hosts are created on demand by cpd (see main.go).
 	return &p, nil
 }

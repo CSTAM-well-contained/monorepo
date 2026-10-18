@@ -43,7 +43,7 @@ func newRouter(ctx *pulumi.Context, s Settings, ex existing) (*networking.Router
 		ExternalNetworkId: pulumi.String(ex.ExternalNetworkID),
 		// EnableSnat is NOT set: on FelCloud (default Neutron policy) only admins may send
 		// enable_snat (403 PolicyNotAuthorized). SNAT is on by default for a router gateway.
-		Tags:              s.tags(),
+		Tags: s.tags(),
 	})
 	if err != nil {
 		return nil, err

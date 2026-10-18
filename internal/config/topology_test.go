@@ -7,7 +7,7 @@ import (
 
 // The plan's safety rules: if one fails, two systems could hand out the same IP.
 func TestTopologyInvariants(t *testing.T) {
-	infra := append([]netip.Addr{Router, ControlIP, VIP}, append(Gateways, Hosts...)...)
+	infra := append([]netip.Addr{Router, ControlIP, VIP, HostRangeLo, HostRangeHi}, Gateways...)
 
 	for _, ip := range infra {
 		if !Subnet.Contains(ip) {
@@ -26,6 +26,9 @@ func TestTopologyInvariants(t *testing.T) {
 		if InNeutronPool(ip) {
 			t.Errorf("%s overlaps Neutron's allocation pool", ip)
 		}
+	}
+	if HostRangeHi.Compare(TeamPoolLo) >= 0 {
+		t.Errorf("host range ends at %s, inside the team pool starting at %s", HostRangeHi, TeamPoolLo)
 	}
 	if TeamPoolHi.Compare(LabPoolLo) >= 0 {
 		t.Errorf("team pool %s-%s overlaps lab pool starting at %s", TeamPoolLo, TeamPoolHi, LabPoolLo)

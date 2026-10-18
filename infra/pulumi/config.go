@@ -14,7 +14,7 @@ import (
 // Topology is the fixed IP plan of cstam-sandbox-net (see the guide, chapter 1.4).
 // It must stay identical to internal/config/topology.go in the main module.
 type Topology struct {
-	RouterIP, CPIP, VIPIP, GW1IP, GW2IP, HostAIP, HostBIP string
+	RouterIP, CPIP, VIPIP, GW1IP, GW2IP string
 }
 
 var topo = Topology{
@@ -23,8 +23,6 @@ var topo = Topology{
 	VIPIP:    "10.20.0.10",
 	GW1IP:    "10.20.0.11",
 	GW2IP:    "10.20.0.12",
-	HostAIP:  "10.20.0.21",
-	HostBIP:  "10.20.0.22",
 }
 
 // Settings are the per-stack values from Pulumi.<stack>.yaml.
@@ -35,11 +33,8 @@ type Settings struct {
 	Image             string
 	GWFlavor          string
 	CPFlavor          string
-	HostFlavor        string
-	ServerGroupPolicy string // "anti-affinity" or "soft-anti-affinity"
-	TeamNetMode       string // "podnic", "aap" or "aap-cidr"
-	WithHostB         bool
-	BootVolumeGB      int // 0 = boot from image; > 0 = boot from a volume of this size
+	ServerGroupPolicy string   // "anti-affinity" or "soft-anti-affinity"
+	BootVolumeGB      int      // 0 = boot from image; > 0 = boot from a volume of this size
 	AdminCIDR         string   // who may reach SSH (22) and the dashboard (443) on the control plane
 	SSHPublicKeys     []string // every teammate's public key, from infra/ssh-keys/*.pub
 }
@@ -54,10 +49,7 @@ func loadSettings(ctx *pulumi.Context) (Settings, error) {
 		Image:             orDefault(c.Get("image"), "Ubuntu 24.04 LTS - Noble Numbat"),
 		GWFlavor:          orDefault(c.Get("gwFlavor"), "G0.basic.1c2g"),
 		CPFlavor:          orDefault(c.Get("cpFlavor"), "G0.basic.2c4g"),
-		HostFlavor:        orDefault(c.Get("hostFlavor"), "G0.basic.4c8g"),
 		ServerGroupPolicy: orDefault(c.Get("serverGroupPolicy"), "anti-affinity"),
-		TeamNetMode:       orDefault(c.Get("teamNetMode"), "podnic"),
-		WithHostB:         c.GetBool("withHostB"),
 		BootVolumeGB:      c.GetInt("bootVolumeGB"),
 		// Default: open to the internet. Safe only because SSH accepts keys only (no
 		// passwords) and the dashboard has its own login; fail2ban runs on the control plane.
@@ -68,11 +60,6 @@ func loadSettings(ctx *pulumi.Context) (Settings, error) {
 	case "anti-affinity", "soft-anti-affinity":
 	default:
 		return s, fmt.Errorf("serverGroupPolicy must be anti-affinity or soft-anti-affinity, got %q", s.ServerGroupPolicy)
-	}
-	switch s.TeamNetMode {
-	case "podnic", "aap", "aap-cidr":
-	default:
-		return s, fmt.Errorf("teamNetMode must be podnic, aap or aap-cidr, got %q", s.TeamNetMode)
 	}
 	if _, err := netip.ParsePrefix(s.AdminCIDR); err != nil {
 		return s, fmt.Errorf("adminCidr must be a CIDR like 0.0.0.0/0 or 203.0.113.7/32: %w", err)
