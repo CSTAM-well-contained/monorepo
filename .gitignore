@@ -25,3 +25,4 @@ docs/guide/out/
 # handoff bundle with secrets: never commit
 /to-emna/
 /to-emna.zip
+/to-emna-steps.pdf
