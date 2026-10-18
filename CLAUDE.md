@@ -18,8 +18,9 @@ Follow the guide's step order and its go/no-go gates.
   Never `pulumi destroy` or `pulumi state unprotect` unless asked in the current conversation.
 - No direct `openstack ... create/delete/set`, except Step 1 lab resources named `cstam-lab-*`
   and tagged `cstam-lab`. Read-only `list`/`show` is always fine.
-- Never read, print or copy secrets: `.secrets/`, `*.key`, `*.pem`, `clouds.yaml`, `*.env`,
-  `~/.aws/credentials`, `~/.config/cstam/`.
+- Secrets (`clouds.yaml`, `~/.aws/credentials`, `*.env`, `*.key`, `*.pem`, `.secrets/`, `to-emna/secrets/`):
+  Claude may read, copy and install them when a task needs it. Never commit them, never send them to an
+  external service, and do not print their values in chat output unless asked.
 - No new Go dependency without asking.
 - Run external commands with an argv slice, never `sh -c` with string concatenation.
 - Validate every name that reaches HAProxy, nftables, iptables or Docker with

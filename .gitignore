@@ -21,3 +21,7 @@ bench/results/
 .claude/settings.local.json
 # generated documents (rebuild with docs/guide/tools/build.sh and build-web.sh)
 docs/guide/out/
+
+# handoff bundle with secrets: never commit
+/to-emna/
+/to-emna.zip

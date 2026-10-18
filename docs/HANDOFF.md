@@ -27,7 +27,7 @@ cd infra/pulumi && pulumi stack select prod && pulumi preview   # "no changes" (
   `openstack create/delete` only for lab resources named `cstam-lab-*`.
 - The OpenStack project is **shared with other people**: never touch a resource that is not ours
   (not named `cstam-*`). Never delete the OVN metadata port 10.20.0.200.
-- Never read or print secrets (`clouds.yaml`, `~/.aws/credentials`, `*.env`, `*.key`, `*.pem`).
+- Secrets: may be read, copied and installed when needed; never committed, never printed in chat.
 - Commit messages short, no em-dashes. Small commits.
 - Dependencies **already approved** by Ahmed (2026-10-18), pin these versions because newer ones
   require Go 1.26 and the module is Go 1.25:
