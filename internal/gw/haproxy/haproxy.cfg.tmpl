@@ -1,0 +1,88 @@
+# Rendered by gwagent. Do not edit: the next apply overwrites it.
+global
+{{- if .S.TrafficLog}}
+    log {{.S.TrafficLog}} len 8192 format rfc5424 local0 info
+{{- end}}
+{{- if .S.Chroot}}
+    chroot {{.S.Chroot}}
+{{- end}}
+{{- if .S.User}}
+    user {{.S.User}}
+{{- end}}
+{{- if .S.Group}}
+    group {{.S.Group}}
+{{- end}}
+    master-worker
+    stats socket {{.S.AdminSocket}} mode {{.S.SocketMode}}{{if .S.SocketGroup}} group {{.S.SocketGroup}}{{end}} level admin expose-fd listeners
+    stats timeout 30s
+    hard-stop-after 30s
+    setenv CFG_VERSION {{.S.Version}}
+    setenv GW_NAME {{.S.GWName}}
+
+defaults
+    mode http
+    log global
+    option dontlognull
+    option forwardfor
+    option http-keep-alive
+    timeout connect 3s
+    timeout client 30s
+    timeout server 60s
+    timeout http-request 10s
+    timeout http-keep-alive 5s
+    timeout queue 5s
+    timeout tunnel 1h
+    retries 2
+    errorfile 503 {{.S.Dir}}/errors/503-maintenance.http
+    log-format '{"ts":"%tr","gw":"%[env(GW_NAME)]","client":"%ci","host":%{+Q}[capture.req.hdr(0)],"method":"%HM","path":%{+Q}HPO,"be":"%b","srv":"%s","status":%ST,"bytes":%B,"tt":%Tt,"tr":%Tr,"term":"%ts"}'
+
+frontend fe_http
+    bind {{.S.HTTPBind}}
+    http-request set-var(txn.host) req.hdr(host),field(1,:),lower
+    http-request capture var(txn.host) len {{.MaxHostLen}}
+{{- range .S.Extra}}
+    {{.}}
+{{- end}}
+
+    acl internal src{{range .S.InternalSources}} {{.}}{{end}}
+    http-request return status 200 content-type text/plain lf-string "ok %[env(GW_NAME)] %[env(CFG_VERSION)]\n" hdr X-Config-Version "%[env(CFG_VERSION)]" hdr X-Routes-Generation "%[str(generation),map({{.S.Dir}}/maps/meta.map,0)]" if { path /__gw/healthz } internal
+    http-request deny deny_status 404 if { path_beg /__gw/ }
+{{- if .S.ACMEAddr}}
+    use_backend be_acme if { path_beg /.well-known/acme-challenge/ }
+{{- end}}
+
+    http-request track-sc0 var(txn.host) table st_host_rate
+    http-request set-var(txn.rl) var(txn.host),map_str_int({{.S.Dir}}/maps/ratelimit.map,{{.S.RateLimit}})
+    http-request deny deny_status 429 if { sc_http_req_rate(0),sub(txn.rl) gt 0 }
+
+    http-response set-header X-Served-By %[env(GW_NAME)]
+    use_backend %[var(txn.host),map({{.S.Dir}}/maps/hosts.map,be_404)]
+    default_backend be_404
+{{- if .S.StatsBind}}
+
+frontend fe_stats
+    bind {{.S.StatsBind}}
+    http-request use-service prometheus-exporter if { path /metrics }
+    stats enable
+    stats uri /stats
+    stats refresh 5s
+{{- end}}
+
+backend st_host_rate
+    stick-table type string len {{.MaxHostLen}} size 10k expire 30s store http_req_rate(10s),bytes_out_rate(10s)
+
+backend be_404
+    http-request return status 404 content-type text/html file {{.S.Dir}}/errors/404.html
+{{- if .S.ACMEAddr}}
+
+backend be_acme
+    server acme {{.S.ACMEAddr}}
+{{- end}}
+
+backend be_slot000
+    server s {{.S.CanaryAddr}} check inter 1s
+{{range .Slots}}
+backend {{.Name}}
+    http-request return status 503 content-type text/html file {{$.S.Dir}}/errors/maintenance.html hdr Retry-After 10 if { nbsrv() lt 1 }
+    server s {{.Endpoint}}{{if not .Used}} disabled{{end}} check inter 2s fastinter 500ms downinter 2s fall 2 rise 1
+{{end -}}
