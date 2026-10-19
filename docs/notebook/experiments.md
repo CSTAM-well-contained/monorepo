@@ -67,6 +67,12 @@ Benchmark and technical reports are written from this file.
   quarantine time and the Neutron in-use callback block it.
 - Cleanup done: yes (containers run with `--rm`, test databases dropped).
 
+### L4 - Sandbox VM driver against FelCloud  (2026-10-19, Emna's PC, WSL Debian 13)
+- Test: `OS_CLOUD=cstam go test -tags e2e -run TestE2ESandbox -v ./internal/openstack/`
+  (one G0.basic.1c1g Debian 12 VM on a Neutron port with a fixed lab-pool IP, SG `cstam-team`).
+- `cstam-e2e-t8ff67f` on 10.20.0.199: **created and ACTIVE in 23 s, deleted (server + port) in 14 s**.
+- Cleanup done: yes, `openstack server list` shows only cp/gw1/gw2, no `cstam-e2e-*` port left.
+
 ## Decisions log
 | Date | Decision | Based on | Alternatives rejected |
 |---|---|---|---|

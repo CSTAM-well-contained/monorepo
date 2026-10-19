@@ -46,7 +46,7 @@ builds on Phase 1, so Phase 1 comes first.
 | Zero-downtime reload, validation, sub-second rollback | 10 | **done, tested** (local Docker) |
 | Dual HA gateways, subdomain routing, failover | 15 | **core done, tested** (local Docker); agent binary missing |
 | Automated IPAM and reclamation, short leases | 10 | **IPAM done, tested** (`internal/ipam`, Postgres 18); wiring into cpd is Task C |
-| API-triggered OpenStack sandbox provisioning | 15 | missing |
+| API-triggered OpenStack sandbox provisioning | 15 | **driver done, tested on FelCloud** (`internal/openstack`); API = Task C |
 | Deliverables: code, architecture/data-flow diagram, demo video | | diagrams in the guide; official docs and video missing |
 
 ### What exists and is tested
@@ -116,7 +116,15 @@ start). Design:
   1000 parallel allocations never give the same IP twice; pool exhaustion returns a clear error;
   quarantine is not freed before both gateways ack.
 
-### Task B: OpenStack sandbox driver (`internal/openstack`)
+### Task B: OpenStack sandbox driver (`internal/openstack`): DONE (2026-10-19)
+What exists: `lifecycle.Sandboxes` interface (`Create`, `Delete`, `InUse`, `List`), `Spec` with
+validation (dns labels, team/lab pool IP, image ref), `Ref` stored as JSON in `teams.sandbox_ref`.
+`openstack.Driver` (gophercloud): port with fixed IP + VM, idempotent by name, quota and IP-taken
+errors mapped to `lifecycle.ErrQuota` / `ErrIPTaken`. `openstack/fake` for unit tests.
+Proof: `go test ./internal/lifecycle/ ./internal/openstack/...` and the e2e test
+(notebook L4: 23 s create, 14 s delete).
+
+Original plan:
 - Interface (put it in `internal/lifecycle`): `Create(ctx, Spec{Hackathon, Team, IP, Port, Image}) (ref, error)`,
   `Delete(ctx, ref) error`, both idempotent (find by name first).
 - Phase 1 sandbox = **one small VM per team** (flavor `G0.basic.1c1g`, image `Debian 12 - Bookworm`)
