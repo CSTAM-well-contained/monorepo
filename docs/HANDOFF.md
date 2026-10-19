@@ -67,6 +67,9 @@ builds on Phase 1, so Phase 1 comes first.
   nothing can reach our VMs (no SSH, no deploy, no public demo). Ahmed asked the mentors for 2.
   When they exist, `pulumi up` in `infra/pulumi` creates them (code already there, protected).
   Check from time to time: `openstack floating ip list` / ask Ahmed.
+  Last retry 2026-10-19 21:54 (`pulumi up`): still `ExternalIpAddressExhausted`, the FelCloud
+  public pool is full (quota is not the problem). Notebook D2. **Needs a human: the mentors must
+  free or reserve 2 public IPs for the project.**
 - What still works without them: `cpd` can run **on the laptop** and call the FelCloud API
   (Keystone/Nova/Neutron are public), so provisioning can be built and tested for real.
   The VMs have outbound internet (router SNAT), but inbound is impossible.

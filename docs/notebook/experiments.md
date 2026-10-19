@@ -121,6 +121,17 @@ Benchmark and technical reports are written from this file.
 - Teardown of 50: sandboxes gone in 7 s, all 50 IPs free at 63 s.
 - Cleanup done: yes (`demo.sh down`).
 
+### D2 - Floating IP retry  (2026-10-19 21:54, Emna's PC)
+- `pulumi preview`: only `cstam-public-fip` (on the VIP port) and `cstam-cp-fip` to create, 30
+  unchanged. `pulumi up`: both fail with **ExternalIpAddressExhausted** (pool 197.5.133.1-.230 on
+  `INTERNET` is still full). Project quota is 50 FIPs, so the pool, not the quota, is the limit.
+  The dashboard uses the same Neutron API: it cannot do better.
+- Nothing partial created (`openstack floating ip list` empty), state unchanged.
+- The noVNC console works (`openstack console url show`), but the VMs are key-only with no
+  password, so it gives no login. Other external networks (`Rancher-mgmt`, `lb-mgmt-net`) are
+  FelCloud management networks, not internet access.
+- Retry: `cd infra/pulumi && pulumi preview && pulumi up` (same two creates).
+
 ## Decisions log
 | Date | Decision | Based on | Alternatives rejected |
 |---|---|---|---|
