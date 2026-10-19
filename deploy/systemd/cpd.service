@@ -1,0 +1,26 @@
+# The control plane: REST API, IPAM, controller, reconciler. PostgreSQL runs on the same VM.
+[Unit]
+Description=CSTAM control plane (cpd)
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=cstam
+Group=cstam
+EnvironmentFile=/etc/cstam/cpd.env
+ExecStart=/usr/local/bin/cpd -listen ${CPD_LISTEN} -workers ${CPD_WORKERS}
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadOnlyPaths=/etc/cstam
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

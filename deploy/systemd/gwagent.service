@@ -1,0 +1,26 @@
+# The gateway agent: keeps HAProxy at the routes cpd publishes, acks, reports VRRP.
+# Unprivileged: it only needs the HAProxy sockets (group haproxy) and its own files.
+[Unit]
+Description=CSTAM gateway agent
+After=network-online.target haproxy.service cstam-gw-bootstrap.service
+Wants=network-online.target haproxy.service
+
+[Service]
+Type=simple
+User=cstam
+Group=haproxy
+EnvironmentFile=/etc/cstam/gwagent.env
+ExecStart=/usr/local/bin/gwagent $GWAGENT_OPTS -master-socket /run/haproxy/master.sock
+Restart=always
+RestartSec=1
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/etc/haproxy /var/lib/cstam /run/cstam /run/haproxy
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

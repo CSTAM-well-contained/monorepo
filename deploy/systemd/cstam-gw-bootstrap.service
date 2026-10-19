@@ -1,0 +1,19 @@
+# Writes haproxy.cfg, the map files and keepalived.conf from the IP plan before HAProxy and
+# keepalived start (root: it writes /etc/keepalived and /usr/local/libexec/cstam), then hands
+# /etc/haproxy to the agent. If it fails, HAProxy and keepalived do not start: a gateway with a
+# wrong config must never take the VIP.
+[Unit]
+Description=CSTAM gateway bootstrap (HAProxy and keepalived files)
+After=network-online.target
+Wants=network-online.target
+Before=haproxy.service keepalived.service gwagent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/cstam/gwagent.env
+ExecStart=/usr/local/bin/gwagent -bootstrap $GWAGENT_OPTS -vrrp-iface $VRRP_IFACE
+ExecStartPost=/bin/chown -R cstam:haproxy /etc/haproxy
+
+[Install]
+RequiredBy=haproxy.service keepalived.service
