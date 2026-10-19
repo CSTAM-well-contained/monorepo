@@ -42,3 +42,17 @@ func InNeutronPool(ip netip.Addr) bool {
 func inRange(ip, lo, hi netip.Addr) bool {
 	return ip.Compare(lo) >= 0 && ip.Compare(hi) <= 0
 }
+
+// TeamPorts are the app port ranges the cstam-team security group opens to the gateways.
+// infra/pulumi/secgroups.go must open exactly these ranges.
+var TeamPorts = [][2]int{{80, 80}, {8000, 8099}}
+
+// TeamPortAllowed reports whether the gateways can reach a team app on port p.
+func TeamPortAllowed(p int) bool {
+	for _, r := range TeamPorts {
+		if p >= r[0] && p <= r[1] {
+			return true
+		}
+	}
+	return false
+}

@@ -58,8 +58,8 @@ func (s Spec) Validate() error {
 	if !config.InTeamPool(s.IP) && !inLabPool(s.IP) {
 		errs = append(errs, fmt.Errorf("ip %s is outside the team and lab pools", s.IP))
 	}
-	if s.AppPort < 1 || s.AppPort > 65535 {
-		errs = append(errs, fmt.Errorf("app port %d out of range", s.AppPort))
+	if !config.TeamPortAllowed(s.AppPort) {
+		errs = append(errs, fmt.Errorf("app port %d: the gateways only reach team ports %v", s.AppPort, config.TeamPorts))
 	}
 	if s.Image != "" && (len(s.Image) > 255 || !imageRE.MatchString(s.Image)) {
 		errs = append(errs, fmt.Errorf("image %q is not a valid image reference", s.Image))

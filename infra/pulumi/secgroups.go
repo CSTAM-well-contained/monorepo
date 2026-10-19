@@ -73,6 +73,7 @@ func newSecGroups(ctx *pulumi.Context, s Settings) (*SecGroups, error) {
 		{group: "cstam-cp", desc: "host agents to cp", protocol: "tcp", portMin: 8443, portMax: 8443, remoteGroup: "cstam-host"},
 		{group: "cstam-host", desc: "ssh from cp", protocol: "tcp", portMin: 22, portMax: 22, remoteGroup: "cstam-cp"},
 		{group: "cstam-host", desc: "icmp from cp", protocol: "icmp", remoteGroup: "cstam-cp"},
+		// team app ports: must match config.TeamPorts in internal/config/topology.go
 		{group: "cstam-team", desc: "team http via gw", protocol: "tcp", portMin: 80, portMax: 80, remoteGroup: "cstam-gw"},
 		{group: "cstam-team", desc: "team apps via gw", protocol: "tcp", portMin: 8000, portMax: 8099, remoteGroup: "cstam-gw"},
 	}
