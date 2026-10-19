@@ -4,7 +4,8 @@
 # running HAProxy + keepalived + gwagent and share the VIP; each team is a container at its
 # IPAM address. Needs Docker, curl, jq and `make build`.
 #
-#   demo.sh up            start everything (CPD_WORKERS=n: sandbox operations in flight, default 4)
+#   demo.sh up            start everything (CPD_WORKERS=n: sandbox operations in flight, default 4;
+#                         GW_MODE=systemd: gateways run systemd with the units of deploy/systemd)
 #   demo.sh teams [N]     create hackathon $HACK (default demo) with N teams (default 3), curl each via the VIP
 #   demo.sh stress [N]    N registrations at once (default 20): latency p50/p95, distinct IPs
 #   demo.sh failover [pause|kill]
@@ -25,6 +26,7 @@ CPD="http://$ROUTER:8080"
 HACK=${HACK:-demo}              # hackathon name; an ended one keeps its name
 DOMAIN=$HACK.cstam.test
 GW_IMAGE=cstam-lab-gw:test      # same image as the keepalived integration test
+GW_IMAGE_SYSTEMD=cstam-lab-gw-systemd:test
 STATE="${XDG_RUNTIME_DIR:-/tmp}"; STATE="${STATE%/}/cstam-demo"
 PG=cstam-demo-pg
 
@@ -46,6 +48,23 @@ master() {
   for gw in gw1 gw2; do
     docker exec "cstam-demo-$gw" cat /run/cstam/vrrp.state 2>/dev/null | grep -q '^MASTER ' && echo "$gw"
   done | head -1 || true
+}
+
+# systemd_gw NAME IP: a gateway booting systemd, set up by deploy/systemd/install-gateway.sh
+# exactly as on a FelCloud VM (only the interface and the process tracking differ).
+systemd_gw() {
+  local gw=$1 ip=$2 ctr="cstam-demo-$1"
+  docker run -d --name "$ctr" --hostname "$gw" --network "$DNET" --ip "$ip" \
+    --privileged --cgroupns=private --tmpfs /run --tmpfs /run/lock \
+    -v "$PWD/bin:/opt/cstam/bin:ro" -v "$PWD/deploy/systemd:/opt/cstam/systemd:ro" \
+    "$GW_IMAGE_SYSTEMD" >/dev/null
+  for _ in $(seq 40); do docker exec "$ctr" systemctl is-system-running 2>/dev/null | grep -qE 'running|degraded' && break; sleep 0.5; done
+  { grep CSTAM_GATEWAY_TOKEN "$STATE/gw.env"
+    echo "GWAGENT_OPTS=-name $gw -cpd $CPD -haproxy-user haproxy -vrrp-track-process=false"
+    echo "VRRP_IFACE=eth0"; } | docker exec -i "$ctr" sh -c 'cat >/tmp/gwagent.env'
+  docker exec "$ctr" sh /opt/cstam/systemd/install-gateway.sh /opt/cstam/bin /tmp/gwagent.env >/dev/null ||
+    die "install-gateway.sh failed on $gw (docker exec $ctr journalctl -xe)"
+  docker exec "$ctr" rm -f /tmp/gwagent.env
 }
 
 up() {
@@ -78,10 +97,19 @@ up() {
     curl -sf "$CPD/healthz" >/dev/null || { tail -5 "$STATE/cpd.log"; die "cpd did not start"; }
   fi
 
+  echo "${GW_MODE:-plain}" >"$STATE/mode"
+  if [ "${GW_MODE:-plain}" = systemd ] && ! docker image inspect "$GW_IMAGE_SYSTEMD" >/dev/null 2>&1; then
+    echo "== building the systemd gateway image"
+    docker build -q --build-arg "BASE=$GW_IMAGE" -t "$GW_IMAGE_SYSTEMD" deploy/systemd/test >/dev/null
+  fi
   for gw in gw1 gw2; do
     ip=GW1_IP; [ "$gw" = gw2 ] && ip=GW2_IP
     docker inspect "cstam-demo-$gw" >/dev/null 2>&1 && continue
-    echo "== $gw on ${!ip}"
+    echo "== $gw on ${!ip} (${GW_MODE:-plain})"
+    if [ "${GW_MODE:-plain}" = systemd ]; then
+      systemd_gw "$gw" "${!ip}"
+      continue
+    fi
     docker run -d --name "cstam-demo-$gw" --hostname "$gw" --network "$DNET" --ip "${!ip}" \
       --cap-add NET_ADMIN --cap-add NET_RAW --cap-add NET_BROADCAST \
       --env-file "$STATE/gw.env" -e "GW_NAME=$gw" -e "CPD_URL=$CPD" \
@@ -180,16 +208,22 @@ failover() {
   wait "$probe"
   if [ "$how" = pause ]; then
     docker unpause "cstam-demo-$m" >/dev/null
-  else # HAProxy is not supervised in the container: restart the gateway
-    docker restart "cstam-demo-$m" >/dev/null
+  else
+    # systemd restarts HAProxy by itself (Restart=always); the plain mode has no supervisor
+    [ "$(cat "$STATE/mode" 2>/dev/null)" = systemd ] || docker restart "cstam-demo-$m" >/dev/null
   fi
+  # Either the peer takes over, or (systemd) HAProxy is restarted in place before keepalived
+  # reacts: then the same gateway answers again and the outage is the restart time.
   awk -v t="$t" -v old="$m" '
     $1 >= t && $2 == 200 && $3 != old && !back { back = $1; by = $3 }
-    $1 >= t && $2 != 200 { lost++ }
+    $1 >= t && $2 != 200 { lost++; if (!down) down = $1; up = 0 }
+    $1 >= t && $2 == 200 && down && !up { up = $1 }
     $1 >= t { total++ }
     END {
-      if (!back) { print "no other gateway took over"; exit 1 }
-      printf "%s took over %.0f ms after the failure; %d of %d probes failed\n", by, (back - t) * 1000, lost, total
+      if (back) printf "%s took over %.0f ms after the failure; %d of %d probes failed\n", by, (back - t) * 1000, lost, total
+      else if (up) printf "%s recovered in place (no failover): VIP down %.0f ms; %d of %d probes failed\n", old, (up - t) * 1000, lost, total
+      else if (!lost) print "no outage seen"
+      else { print "the VIP did not come back during the probe"; exit 1 }
     }' "$STATE/probe" || true
   sleep 3
   # A frozen master wakes up still MASTER with the higher priority and takes the VIP back;
@@ -235,5 +269,5 @@ down() {
 
 case "${1:-}" in
   up|teams|stress|failover|reload|teardown|status|down) "$@" ;;
-  *) sed -n "2,16p" "$0"; exit 2 ;;
+  *) sed -n "2,18p" "$0"; exit 2 ;;
 esac
