@@ -62,8 +62,9 @@ routes even without `cpd`.
 
 **Readiness.** At start `gwagent` deletes `/run/cstam/ready` and recreates it only after a
 successful sync with `cpd` (or after 10 s without `cpd`, as `stale`). keepalived's `chk_gateway`
-needs that file **and** a 200 from HAProxy's own `/__gw/healthz`, so a gateway with empty or old
-routes can never take the VIP.
+needs that file **and** a 200 from HAProxy's own `/__gw/healthz`, so a freshly started gateway
+does not take the VIP before it has routes. If `cpd` is down, the gateway becomes ready after 10 s
+with the routes it saved before (better than no gateway at all); it catches up when `cpd` returns.
 
 **Failover** ([diagram](../guide/diagrams/f07-vip-failover.png)):
 - MASTER silent (crash, freeze): the backup declares it dead after 3 x 0.5 s + skew, takes the VIP

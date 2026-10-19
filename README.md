@@ -24,9 +24,15 @@ docs/           brief, implementation guide, team setup, lab notebook
 ```bash
 make lint test build              # Go code: lint, tests, binaries in bin/
 make infra-check                  # Pulumi program: build + read-only preview of the cloud
+make test-int                     # integration tests (Docker: PostgreSQL, HAProxy, keepalived)
+deploy/dev/demo.sh up             # the whole platform on one machine (then: teams, failover, stress, down)
 ```
 New teammate: read [`docs/README.md`](docs/README.md), then do [`docs/team/README.md`](docs/team/README.md).
+Jury documents (architecture, API, benchmark report): [`docs/official/`](docs/official/README.md).
 
 ## Status
-Infrastructure deployed except the floating IPs (waiting for FelCloud). Gateway reload/rollback
-and keepalived failover built and tested locally. What is left: [`docs/HANDOFF.md`](docs/HANDOFF.md).
+Phase 1 is built and tested: control plane `cpd` (REST API, IPAM, lifecycle), OpenStack VM
+sandboxes (tested on FelCloud), HA gateways with zero-downtime reload and rollback, and a local
+demo stack with a stress test (50 simultaneous teams). Infrastructure is deployed except the
+floating IPs (waiting for FelCloud), so the public demo on FelCloud is pending.
+What is left: [`docs/HANDOFF.md`](docs/HANDOFF.md).

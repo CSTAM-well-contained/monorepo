@@ -83,7 +83,8 @@ Benchmark and technical reports are written from this file.
 - Run: `deploy/dev/demo.sh up`, `teams 4`, `failover pause|kill` x 6, `reload`, `teardown`. Real cpd
   (docker sandbox driver) + Postgres, gw1/gw2 containers (HAProxy 3.2 + keepalived + gwagent) on a
   Docker bridge `10.20.0.0/24` with the FelCloud IP plan, team containers at their IPAM addresses.
-- API call to first 200 through the VIP: **0.7-2.1 s per team** (container start ~0.6 s, then the
+- API call to first 200 through the VIP: **0.7-2.1 s per team** (upper bound: teams are polled one
+  after the other; see L7 for the parallel measurement. Container start ~0.6 s, then the
   route push to both gateways). The IPAM gives .32, .33, ... and slots 1, 2, ... as designed.
 - Failover, takeover time measured with a 20 ms probe through the VIP (6 runs, alternating gateways):
   | failure | takeover |

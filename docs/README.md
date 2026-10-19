@@ -4,6 +4,7 @@
 |---|---|---|
 | [`HANDOFF.md`](HANDOFF.md) | **Where the work stands and what is left** | Start here when you pick up the work |
 | [`challenge/brief.md`](challenge/brief.md) | The official CSTAM-FELCLOUD brief and scoring | First, once |
+| [`official/`](official/README.md) | **Jury deliverables**: architecture and data flow, API reference, benchmark report | Before the demo and the pitch; update with new measurements |
 | [`guide/`](guide/) | **The implementation guide**: design decisions and the step-by-step build plan (Go, Pulumi) | The reference for all work |
 | [`team/README.md`](team/README.md) | One-time setup for a new teammate (SSH key, OpenStack, shared Pulumi state) | Before your first day |
 | [`notebook/experiments.md`](notebook/experiments.md) | Lab notebook: every experiment, measurement and decision on FelCloud | Before touching the cloud; add to it after |

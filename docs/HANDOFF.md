@@ -193,6 +193,11 @@ curl on a team, `failover pause`, `reload`, `teardown`). The local network is no
 between teams (Docker bridge); isolation is the job of `cstam-team` on FelCloud.
 When floating IPs exist, redo the demo on FelCloud.
 
+Review pass (2026-10-19) after Task E: `ApplySettings` now reports `failed` (not `rolled_back`)
+when the rollback itself fails, and forgets the slot table so the next route sync sets every
+server again; gwagent writes the keepalived files only with `-bootstrap` (the agent runs
+unprivileged on the VMs); the docker driver restarts a stopped team container instead of failing.
+
 ### Task F: official docs: DONE (2026-10-19)
 `docs/official/`: `README.md` (requirement -> implementation -> evidence table), `architecture.md`
 (components, HA gateway data flow, reload/rollback, lifecycle and IPAM, security; reuses the guide
