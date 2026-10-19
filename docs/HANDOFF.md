@@ -47,7 +47,7 @@ builds on Phase 1, so Phase 1 comes first.
 | Dual HA gateways, subdomain routing, failover | 15 | **done, tested** (local Docker): HAProxy + keepalived + `gwagent`; FelCloud run waits for floating IPs |
 | Automated IPAM and reclamation, short leases | 10 | **done, tested**: IPAM wired into cpd (lease expiry, ack-gated recycling) |
 | API-triggered OpenStack sandbox provisioning | 15 | **done**: REST API `cpd` + VM driver tested on FelCloud; full run on FelCloud waits for floating IPs |
-| Deliverables: code, architecture/data-flow diagram, demo video | | diagrams in the guide; official docs and video missing |
+| Deliverables: code, architecture/data-flow diagram, demo video | | diagrams in the guide; **local demo stack ready** (`deploy/dev/demo.sh`, Task E); official docs and the video recording missing |
 
 ### What exists and is tested
 - `internal/gw/haproxy`: renders `haproxy.cfg` (128 slot backends `be_slot001..`, canary `be_slot000`,
@@ -171,15 +171,38 @@ agent -> real HAProxy 3.2 in Docker -> team apps; a new route serves 24 ms after
 Not done: force-backup flag from cpd (manual failover is the file `/run/cstam/force-backup`),
 traffic log streaming (guide ch. 13, optional), systemd units in `deploy/systemd`.
 
-### Task E: local demo stack + video
-`docker compose` with Postgres, cpd, gw1/gw2 (HAProxy + keepalived + gwagent), and a Docker sandbox
-driver, using the same IP plan (10.20.0.0/24) as FelCloud. Record: create teams -> routing works,
-hot reload with a broken config -> rollback, `docker pause gw1` -> failover. When floating IPs exist,
-redo it on FelCloud.
+### Task E: local demo stack: DONE (2026-10-19), video still to record
+What exists:
+- `internal/docker`: `lifecycle.Sandboxes` driver, one container per team on a Docker network at
+  its IPAM IP (docker CLI with argv, label `cstam.sandbox`, memory/CPU/pids limits). Default page:
+  the `haproxy:3.2` image answering "team X of H at IP" (no extra download); `image` runs that image
+  with `PORT`/`APP_PORT` set. `cpd` uses it with `CSTAM_DRIVER=docker` (`CSTAM_DOCKER_NETWORK`).
+- `gwagent -bootstrap -vrrp-iface ens3` also writes keepalived.conf and the VRRP scripts
+  (`keepalived.ForGateway`: gw1 priority 150, gw2 100, peers and VIP from the IP plan). Use it in the
+  gateway systemd units too (Task G).
+- `deploy/dev/demo.sh up | teams N | failover pause|kill | reload | teardown | status | down` and
+  `deploy/dev/gw-entrypoint.sh`. Plain `docker run` (no compose plugin to download), bridge
+  `cstam-demo` = 10.20.0.0/24 with the host as .1, cpd on 10.20.0.1:8080, gateways .11/.12, VIP .10.
+  `HACK=name demo.sh teams` uses another hackathon (an ended one keeps its name).
+Proof: `go test -tags integration ./internal/docker/` and the run in notebook L6 (team routed
+0.7-2.1 s after the API call, failover 1.3-2.3 s, IPs freed 61 s after teardown and reused).
+Two gateway bugs found by the demo and fixed (L6): slow retry of a failed first apply, and a
+gateway that took the VIP while serving 503 after a failed reload.
+Left for a human: **record the video** (screen capture of `demo.sh up`, `teams 4`, a browser or
+curl on a team, `failover pause`, `reload`, `teardown`). The local network is not isolated
+between teams (Docker bridge); isolation is the job of `cstam-team` on FelCloud.
+When floating IPs exist, redo the demo on FelCloud.
 
 ### Task F: official docs (deliverable, not team notes)
 `docs/official/`: architecture, data-flow diagram of the HA gateway (Excalidraw sources are in
 `docs/guide/diagrams/`), API reference, IPAM lifecycle, measured results from the notebook.
+
+### Task G: systemd units for the FelCloud VMs (needed once floating IPs exist)
+`deploy/systemd/`: `gwagent.service` (`ExecStartPre=gwagent -bootstrap -vrrp-iface ens3`, ordered
+before `haproxy.service` for the files and started after it for the sockets, the same order as
+`deploy/dev/gw-entrypoint.sh`), `cpd.service` (env file `/etc/cstam/cpd.env`, 0600). Delete stale
+HAProxy sockets before start (L6 bug 2 came from a stale socket). Test what can be tested without
+the VMs: `systemd-analyze verify`.
 
 ## 6. Good to know
 - Guide errata found by testing, already fixed in ch. 12: keepalived 2.3 refuses `delay 0` in

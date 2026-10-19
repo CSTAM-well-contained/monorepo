@@ -79,6 +79,33 @@ Benchmark and technical reports are written from this file.
   (no reload). Removing a team: its host stops answering 200, the other team keeps serving, ack follows.
 - Cleanup done: yes (container `--rm`, temp dir removed).
 
+### L6 - Whole platform on one machine (local demo)  (2026-10-19, Emna's PC, WSL Debian 13, Docker)
+- Run: `deploy/dev/demo.sh up`, `teams 4`, `failover pause|kill` x 6, `reload`, `teardown`. Real cpd
+  (docker sandbox driver) + Postgres, gw1/gw2 containers (HAProxy 3.2 + keepalived + gwagent) on a
+  Docker bridge `10.20.0.0/24` with the FelCloud IP plan, team containers at their IPAM addresses.
+- API call to first 200 through the VIP: **0.7-2.1 s per team** (container start ~0.6 s, then the
+  route push to both gateways). The IPAM gives .32, .33, ... and slots 1, 2, ... as designed.
+- Failover, takeover time measured with a 20 ms probe through the VIP (6 runs, alternating gateways):
+  | failure | takeover |
+  |---|---|
+  | master frozen (`docker pause`) | 1.32, 1.62, 1.85 s |
+  | HAProxy killed (`pkill -KILL haproxy`) | 1.57, 1.86, 2.31 s |
+  Same range as L2. After `docker unpause` the frozen master still believes it is MASTER with the
+  higher priority and takes the VIP back (a second, short switch); a restarted gateway comes back
+  as BACKUP (`nopreempt`).
+- Teardown of 4 teams: containers gone in 0.7 s; the 4 IPs stay in quarantine and are freed at 61 s
+  (60 s quarantine, both gateways acked). The next hackathon got 10.20.0.32 again.
+- **Two bugs found by this run, fixed with regression tests:**
+  1. `gwagent`: a failed first apply (HAProxy canary not up yet) was retried only after the 25 s
+     long-poll, so a fresh gateway stayed FAULT for ~26 s. Now it fetches again at once
+     (`TestFailedApplyRetriedWhileCPDIsIdle`).
+  2. `applier.SyncRoutes`: when the runtime sync and the fallback reload both failed (gateway
+     restarted, HAProxy not listening yet), the new slot table and generation were recorded anyway.
+     The next sync skipped the servers, said "applied", the gateway became ready and took the VIP
+     **while answering 503** for every team. Now a failed reload forgets the slot table and keeps the
+     old generation (`TestSyncAfterFailedReload`).
+- Cleanup done: yes (`demo.sh down` removes containers and the network).
+
 ## Decisions log
 | Date | Decision | Based on | Alternatives rejected |
 |---|---|---|---|
@@ -88,3 +115,5 @@ Benchmark and technical reports are written from this file.
 | 2026-10-17 | soft-anti-affinity for the gateway server group | D1 | strict anti-affinity (fails on FelCloud) |
 | 2026-10-19 | IPAM allocation serialized by a transaction advisory lock | L3 (slot uniqueness from committed rows) | retry on unique violation |
 | 2026-10-19 | Sweep frees nothing when gateways exist but none was seen in 5 min | ch. 17 safety rule | free on timeout only |
+| 2026-10-19 | Local demo = plain `docker run` script, team sandboxes as containers (docker driver) | no floating IPs yet; saves the compose plugin download | docker compose, kind |
+| 2026-10-19 | gwagent `-bootstrap -vrrp-iface` also renders keepalived.conf and the VRRP scripts | one source of truth for the IP plan (gw1 prio 150) | hand-written keepalived.conf in cloud-init |
