@@ -5,7 +5,8 @@
 //	CSTAM_DB_DSN         PostgreSQL DSN (required)
 //	CSTAM_ADMIN_TOKEN    bearer token of the admin API (required, >= 16 chars)
 //	CSTAM_GATEWAY_TOKEN  bearer token of the gateway agents (required, >= 16 chars)
-//	CSTAM_DRIVER         openstack (default) or fake (in-memory, local development)
+//	CSTAM_DRIVER         openstack (default), docker (containers, local demo) or fake (in-memory)
+//	CSTAM_DOCKER_NETWORK Docker network of the docker driver (default cstam-demo)
 //	OS_CLOUD             clouds.yaml entry, for the openstack driver
 //	CSTAM_NETWORK_ID, CSTAM_SUBNET_ID, CSTAM_TEAM_SG_ID
 //	                     from `pulumi stack output` (networkId, subnetId, teamSecGroupId)
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	"github.com/CSTAM-well-contained/monorepo/internal/api"
+	"github.com/CSTAM-well-contained/monorepo/internal/docker"
 	"github.com/CSTAM-well-contained/monorepo/internal/ipam"
 	"github.com/CSTAM-well-contained/monorepo/internal/lifecycle"
 	"github.com/CSTAM-well-contained/monorepo/internal/openstack"
@@ -110,6 +112,13 @@ func driver(ctx context.Context, log *slog.Logger) (lifecycle.Sandboxes, error) 
 	case "fake":
 		log.Warn("using the in-memory fake sandbox driver: nothing is created in the cloud")
 		return fake.New(), nil
+	case "docker":
+		network := os.Getenv("CSTAM_DOCKER_NETWORK")
+		if network == "" {
+			network = "cstam-demo"
+		}
+		log.Info("using the docker sandbox driver: one container per team", "network", network)
+		return docker.New(docker.Config{Network: network})
 	case "", "openstack":
 		return openstack.New(ctx, openstack.Config{
 			NetworkID:      os.Getenv("CSTAM_NETWORK_ID"),
@@ -117,6 +126,6 @@ func driver(ctx context.Context, log *slog.Logger) (lifecycle.Sandboxes, error) 
 			TeamSecGroupID: os.Getenv("CSTAM_TEAM_SG_ID"),
 		})
 	default:
-		return nil, fmt.Errorf("CSTAM_DRIVER %q: want openstack or fake", d)
+		return nil, fmt.Errorf("CSTAM_DRIVER %q: want openstack, docker or fake", d)
 	}
 }
