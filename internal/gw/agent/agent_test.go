@@ -54,6 +54,7 @@ type fakeCPD struct {
 	desired model.Desired
 	acks    []model.Ack
 	down    bool
+	hold    time.Duration // long-poll hold when nothing changed (default 100 ms)
 }
 
 func (c *fakeCPD) set(d model.Desired) {
@@ -89,7 +90,13 @@ func (c *fakeCPD) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if v := r.URL.Query().Get("after"); v != "" {
 			after, _ = strconv.ParseInt(v, 10, 64)
 		}
-		deadline := time.Now().Add(100 * time.Millisecond)
+		c.mu.Lock()
+		hold := c.hold
+		c.mu.Unlock()
+		if hold == 0 {
+			hold = 100 * time.Millisecond
+		}
+		deadline := time.Now().Add(hold)
 		for {
 			c.mu.Lock()
 			d := c.desired
@@ -98,7 +105,11 @@ func (c *fakeCPD) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				_ = json.NewEncoder(w).Encode(d)
 				return
 			}
-			time.Sleep(5 * time.Millisecond)
+			select {
+			case <-r.Context().Done(): // the agent stopped: let the test server close
+				return
+			case <-time.After(5 * time.Millisecond):
+			}
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/gateways/gw1/ack":
 		var a model.Ack
@@ -243,6 +254,20 @@ func TestFailedApplyKeepsOldAck(t *testing.T) {
 	app.fail = nil
 	app.mu.Unlock()
 	eventually(t, "ack after recovery", func() bool { a, _ := cpd.lastAck(); return a.Generation == 3 })
+}
+
+// At start the gateway already serves the generation of cpd (0) but the first apply failed:
+// the agent must retry without waiting for a long-poll that only ends when cpd changes.
+func TestFailedApplyRetriedWhileCPDIsIdle(t *testing.T) {
+	app := &fakeApplier{fail: errors.New("canary status 503")}
+	cpd := &fakeCPD{desired: desired(0, "a.h.example.org"), hold: 20 * time.Second}
+	r := newRig(t, app, cpd)
+	r.start(t)
+	eventually(t, "first try", func() bool { app.mu.Lock(); defer app.mu.Unlock(); return app.calls >= 1 })
+	app.mu.Lock()
+	app.fail = nil
+	app.mu.Unlock()
+	eventually(t, "routes applied", func() bool { app.mu.Lock(); defer app.mu.Unlock(); return len(app.routes) == 1 })
 }
 
 func TestBadRouteIsNotApplied(t *testing.T) {

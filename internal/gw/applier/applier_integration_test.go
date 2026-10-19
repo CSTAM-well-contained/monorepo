@@ -265,3 +265,37 @@ func TestReloadDropsNoRequest(t *testing.T) {
 		t.Fatalf("%d requests failed during reloads, first: %v", failed.Load(), firstErr.Load())
 	}
 }
+
+// TestSyncAfterFailedReload: HAProxy unreachable (no sockets) makes both the runtime sync and
+// the fallback reload fail. Once HAProxy is back, the same routes must really be served, and
+// Generation must not claim the failed generation in between.
+func TestSyncAfterFailedReload(t *testing.T) {
+	l := newLab(t)
+	ctx := context.Background()
+	a := teamApp(t, "team-a")
+	routes := []haproxy.Route{route("a.hacka.test", 1, a)}
+
+	socks := []string{l.settings.AdminSocket, filepath.Join(l.settings.Dir, "master.sock")}
+	for _, s := range socks {
+		if err := os.Rename(s, s+".away"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := l.app.SyncRoutes(ctx, 1, routes); err == nil {
+		t.Fatal("SyncRoutes succeeded without HAProxy")
+	}
+	if g := l.app.Generation(); g != 0 {
+		t.Fatalf("Generation = %d after a failed sync, want 0", g)
+	}
+	for _, s := range socks {
+		if err := os.Rename(s+".away", s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := l.app.SyncRoutes(ctx, 1, routes); err != nil {
+		t.Fatal(err)
+	}
+	if code, body, err := l.get("a.hacka.test"); err != nil || code != 200 || body != "team-a" {
+		t.Fatalf("a after recovery: %d %q %v, want 200 team-a", code, body, err)
+	}
+}

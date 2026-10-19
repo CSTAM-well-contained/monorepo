@@ -128,10 +128,13 @@ func (a *Agent) Run(ctx context.Context) error {
 				break
 			}
 			backoff = min(2*backoff, a.cfg.MaxBackoff)
+			// Fetch again at once: a long-poll "after" the generation we still serve would
+			// hold until cpd changes, and the failed generation would not be retried.
+			after = -1
 		} else {
 			backoff = time.Second
+			after = int64(a.app.Generation()) //nolint:gosec // generations are small
 		}
-		after = int64(a.app.Generation()) //nolint:gosec // generations are small
 		if err := a.ack(ctx); err != nil && ctx.Err() == nil {
 			a.cfg.Log.Warn("ack", "err", err.Error())
 		}

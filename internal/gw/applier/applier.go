@@ -198,8 +198,12 @@ func (a *Applier) SyncRoutes(ctx context.Context, generation uint64, routes []ha
 		if err := haproxy.WriteMaps(s.Dir, generation, routes); err != nil {
 			return fmt.Errorf("write maps: %w", err)
 		}
+		prev := a.generation
 		a.routes, a.slots, a.generation = routes, table, generation
 		if err := a.restore(ctx); err != nil {
+			// HAProxy may still run the old servers: forget the slot table so the next sync
+			// sets every server again, and do not claim a generation HAProxy never confirmed.
+			a.slots, a.generation = nil, prev
 			return fmt.Errorf("route sync by reload: %w", err)
 		}
 		return nil
