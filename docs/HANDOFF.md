@@ -214,12 +214,25 @@ team on port 3000 would have been `ready` but unreachable on FelCloud. Now `Spec
 `config.TeamPortAllowed` (ranges in `config.TeamPorts`, Pulumi rule commented to match): the API
 answers 400. Applies to every driver, so the local demo behaves like FelCloud.
 
-### Task G: systemd units for the FelCloud VMs (needed once floating IPs exist)
-`deploy/systemd/`: `gwagent.service` (`ExecStartPre=gwagent -bootstrap -vrrp-iface ens3`, ordered
-before `haproxy.service` for the files and started after it for the sockets, the same order as
-`deploy/dev/gw-entrypoint.sh`), `cpd.service` (env file `/etc/cstam/cpd.env`, 0600). Delete stale
-HAProxy sockets before start (L6 bug 2 came from a stale socket). Test what can be tested without
-the VMs: `systemd-analyze verify`.
+### Task G: systemd units for the FelCloud VMs: DONE (2026-10-19), tested on systemd containers
+`deploy/systemd/`: `cstam-gw-bootstrap.service` (root oneshot before HAProxy and keepalived:
+`gwagent -bootstrap -vrrp-iface`, then `/etc/haproxy` to `cstam:haproxy`), `haproxy.service.d/cstam.conf`
+(master socket `/run/haproxy/master.sock` group haproxy), `gwagent.service` (unprivileged, hardened),
+`cstam-gw.tmpfiles.conf` (`/run/cstam`), `cpd.service`, `install-gateway.sh`; env examples in
+`deploy/env/`. Proof: `GW_MODE=systemd deploy/dev/demo.sh up` (notebook L8): gateways installed by
+the same script, reboot OK, a killed HAProxy is restarted by systemd in ~0.5 s without failover.
+Not run for real: `cpd.service` (needs the cp VM).
+
+**Deploy when the floating IPs exist** (cp has a FIP; the gateways are reached through it):
+1. `pulumi preview && pulumi up` in `infra/pulumi`; `pulumi stack output` for the IDs.
+2. cp: copy `bin/cpd`, `deploy/systemd/cpd.service` and `/etc/cstam/cpd.env` (from
+   `deploy/env/cpd.env.example`, 0600 cstam) and `/etc/cstam/clouds.yaml` (0600 cstam);
+   `systemctl enable --now cpd`.
+3. each gateway (`ssh -J cp`): copy `bin/gwagent` and `deploy/systemd/`, write the env file from
+   `deploy/env/gwagent.env.example` (`-name gw1`/`gw2`, same gateway token as cpd), then
+   `sudo deploy/systemd/install-gateway.sh <bin dir> <env file>`.
+4. Check: `curl -H "Host: <team>.<domain>" http://<public FIP>/`, then the failover demo with
+   `echo c | sudo tee /proc/sysrq-trigger` on the MASTER (guide ch. 20), and record it (notebook).
 
 ## 6. Good to know
 - Guide errata found by testing, already fixed in ch. 12: keepalived 2.3 refuses `delay 0` in

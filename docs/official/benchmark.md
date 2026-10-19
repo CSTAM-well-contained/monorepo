@@ -18,7 +18,7 @@ adds the virtual-port rebinding time (expected 10-300 ms), to be measured there.
 | B3 | 1000 parallel allocations, 128 slots | 128 allocated, 872 clean `pool exhausted`, **no IP or slot given twice** | no conflicts |
 | B4 | FelCloud VM sandbox create / delete | **23 s** to ACTIVE, **14 s** to delete server + port | |
 | B5 | 50 simultaneous registrations | **50/50 routed, p50 3.4 s, p95 4.9 s**, 0 errors, 50 distinct IPs and slots | 10+ teams, error-free |
-| B6 | Gateway failover (takeover through the VIP) | **1.3-1.9 s** frozen master, **1.5-2.3 s** HAProxy killed, 0.2 s clean stop | seamless |
+| B6 | Gateway failover (takeover through the VIP) | **1.3-1.9 s** frozen master, 0.2 s clean stop; HAProxy killed: **0.45-0.61 s** (systemd restarts it, no failover needed) | seamless |
 | B7 | Teardown of 50 teams | sandboxes and routes gone in **7 s**; IPs back in the pool at **63 s** (60 s quarantine by design) | immediate release |
 
 ## B1 - Zero-downtime reload and rollback
@@ -66,7 +66,8 @@ rest is sandbox creation, bounded by `-workers`. Route propagation itself is mil
 |---|---|---|
 | keepalived stopped cleanly | 0.20 s | priority-0 advert |
 | HAProxy killed | 1.5, 1.57, 1.86, 2.31 s | `chk_gateway` fails twice (interval 1 s) |
-| master frozen (`docker pause`) | 1.32, 1.62, 1.7, 1.85 s | 3 x 0.5 s + skew = 1.8 s in theory |
+| master frozen (`docker pause`) | 1.32, 1.58, 1.62, 1.7, 1.83, 1.85 s | 3 x 0.5 s + skew = 1.8 s in theory |
+| HAProxy killed, gateway under systemd (`GW_MODE=systemd`, L8) | VIP down 0.45, 0.46, 0.59, 0.61 s, no failover | `Restart=always` restarts HAProxy before `chk_gateway` fails twice |
 
 On the VMs, `vrrp_track_process` should bring the HAProxy-killed case under 1 s (cannot be measured
 in containers).

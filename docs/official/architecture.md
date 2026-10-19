@@ -37,6 +37,7 @@ created by Pulumi (`infra/pulumi`, stack `prod`). Team resources are created at 
 | `gwagent` | `cmd/gwagent`, `internal/gw/agent` | On each gateway: long-polls the desired routes from `cpd`, applies them to HAProxy, acks the generation and reports the VRRP state |
 | Applier | `internal/gw/applier`, `internal/gw/haproxy` | Renders `haproxy.cfg` and map files, changes routes at runtime, reloads safely, rolls back |
 | keepalived config | `internal/gw/keepalived` | VRRPv3 unicast between gw1 (priority 150) and gw2 (100), `nopreempt`, health script, notify script |
+| systemd units | `deploy/systemd` | bootstrap (root) writes the HAProxy and keepalived files; HAProxy and keepalived from the packages; `gwagent` unprivileged (`cstam`, group `haproxy`); `cpd` |
 
 ## 3. HA gateway data flow
 
@@ -69,8 +70,9 @@ with the routes it saved before (better than no gateway at all); it catches up w
 **Failover** ([diagram](../guide/diagrams/f07-vip-failover.png)):
 - MASTER silent (crash, freeze): the backup declares it dead after 3 x 0.5 s + skew, takes the VIP
   and sends gratuitous ARPs; OVN moves the virtual port binding and the floating IP follows.
-- HAProxy dies or stops answering: `chk_gateway` fails twice (interval 1 s), the gateway goes FAULT
-  and gives up the VIP. On the VMs `vrrp_track_process` also reacts at once when the process dies.
+- HAProxy dies: systemd restarts it at once (about 0.5 s of downtime, no failover). If it stays
+  down or stops answering, `chk_gateway` fails twice (interval 1 s), the gateway goes FAULT and
+  gives up the VIP. On the VMs `vrrp_track_process` also reacts at once when the process dies.
 - Manual failover: write `1` to `/run/cstam/force-backup`.
 - `nopreempt`: a gateway that comes back stays BACKUP, so there is no second switch.
 - Open TCP connections on the failed gateway are lost (HAProxy is a full proxy); every new

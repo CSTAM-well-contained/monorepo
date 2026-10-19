@@ -132,6 +132,22 @@ Benchmark and technical reports are written from this file.
   FelCloud management networks, not internet access.
 - Retry: `cd infra/pulumi && pulumi preview && pulumi up` (same two creates).
 
+### L8 - systemd units on systemd gateways  (2026-10-19, Emna's PC, WSL Debian 13, Docker)
+- Run: `GW_MODE=systemd deploy/dev/demo.sh up`: gw1/gw2 boot systemd (lab image + systemd, stand-in
+  for the haproxy package unit) and are installed by `deploy/systemd/install-gateway.sh`, the same
+  script as on the VMs. Only differences: `eth0` and `-vrrp-track-process=false`.
+- Result: all four units active on both gateways; HAProxy master root, workers `haproxy`, gwagent
+  `cstam:haproxy`; sockets `root:haproxy 0660`; `/run/cstam` recreated by tmpfiles after a reboot.
+  `docker restart` of a gateway (full boot): BACKUP again after ~4 s, no failed CSTAM unit.
+- **HAProxy killed: no failover any more**, systemd restarts it (`Restart=always`) before
+  `chk_gateway` fails twice: VIP down **0.45, 0.46, 0.59, 0.61 s** (was 1.5-2.3 s by failover).
+  Frozen master: failover in 1.58, 1.83 s as before. 20 parallel teams: 20/20, p95 3.3 s.
+- Found while writing them: the HAProxy admin socket had no group, so the unprivileged agent could
+  not use it; gwagent now sets `group haproxy` on it (`SocketGroup`).
+- `cpd.service`: `systemd-analyze verify` only reports the missing `postgresql.service` of the
+  test container. Not run for real (needs the cp VM).
+- Cleanup done: yes (`demo.sh down`).
+
 ## Decisions log
 | Date | Decision | Based on | Alternatives rejected |
 |---|---|---|---|
