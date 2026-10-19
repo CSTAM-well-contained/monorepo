@@ -45,8 +45,8 @@ builds on Phase 1, so Phase 1 comes first.
 |---|---|---|
 | Zero-downtime reload, validation, sub-second rollback | 10 | **done, tested** (local Docker) |
 | Dual HA gateways, subdomain routing, failover | 15 | **core done, tested** (local Docker); agent binary missing |
-| Automated IPAM and reclamation, short leases | 10 | **IPAM done, tested** (`internal/ipam`, Postgres 18); wiring into cpd is Task C |
-| API-triggered OpenStack sandbox provisioning | 15 | **driver done, tested on FelCloud** (`internal/openstack`); API = Task C |
+| Automated IPAM and reclamation, short leases | 10 | **done, tested**: IPAM wired into cpd (lease expiry, ack-gated recycling) |
+| API-triggered OpenStack sandbox provisioning | 15 | **done**: REST API `cpd` + VM driver tested on FelCloud; full run on FelCloud waits for floating IPs |
 | Deliverables: code, architecture/data-flow diagram, demo video | | diagrams in the guide; official docs and video missing |
 
 ### What exists and is tested
@@ -137,26 +137,25 @@ Original plan:
 - `internal/openstack/fake` for unit tests; an `e2e` test (tag `e2e`) creates one real team and
   deletes it, then lists that nothing `cstam-e2e-*` is left.
 
-### Task C: `cpd` (control plane, `cmd/cpd`, `internal/api`, `internal/lifecycle`)
-Progress (2026-10-19): **C1 controller done** (`internal/lifecycle/controller.go`, `records.go`,
-wire types in `internal/model`). Team states provisioning -> ready | failed -> deleting -> deleted,
-one worker per team (bounded), long-poll `Desired`, `Ack` (refuses a generation ahead of the DB),
-reconciler (expiry, stuck teams after restart, failed-team cleanup, IP sweep with Neutron check,
-ending -> ended). Proof: `go test -race -tags integration -v ./internal/lifecycle/` (10 tests:
-delete during provisioning, restart recovery, ack-gated recycling, ...).
-Left: C2 HTTP handlers (`internal/api`), C3 `cmd/cpd` wiring (env config, driver choice).
-
-- REST (Go 1.22 `net/http` patterns, bearer admin token from env):
-  `POST /v1/hackathons`, `DELETE /v1/hackathons/{h}` (tears down all teams),
-  `POST /v1/hackathons/{h}/teams` -> 202 + team (state `provisioning`), `GET` list/show,
-  `POST /v1/teams/{id}/renew`, `DELETE /v1/teams/{id}`.
-- Worker: provisioning goroutines (bounded), on success `state=ready` + generation bump (route
-  published `<team>.<domain> -> slot -> ip:app_port`). On failure: clean up, `failed`, IP released.
-- Reconciler every 2 s: expired leases -> teardown; teams stuck in `provisioning`/`deleting` after a
-  restart are driven again; eligible quarantine -> free. Log events to `events`.
-- Gateway endpoints (separate gateway token): `GET /v1/gateways/{gw}/desired?after=<gen>`
-  (long-poll 25 s, returns `{generation, routes}`), `POST /v1/gateways/{gw}/ack`
-  `{generation, config_version, vrrp_state}`.
+### Task C: `cpd` (control plane): DONE (2026-10-19)
+What exists:
+- `internal/lifecycle/controller.go`, `records.go`: team states provisioning -> ready | failed ->
+  deleting -> deleted. One worker per team (bounded by `-workers`), reconciler every 2 s (lease
+  expiry, teams stuck after a restart, failed-team cleanup after 10 min, IP sweep with the
+  driver's in-use check, hackathon ending -> ended). `Desired` long-poll, `Ack` refuses a
+  generation ahead of the DB (it would free IPs too early).
+- `internal/model`: JSON wire types shared with gwagent (no pgx dependency).
+- `internal/api`: REST API, bearer tokens (admin and gateway, distinct, constant-time compare),
+  errors mapped to 400/404/409/503, internal errors never leaked.
+  Endpoints: `POST/GET /v1/hackathons`, `GET/DELETE /v1/hackathons/{h}`,
+  `POST/GET /v1/hackathons/{h}/teams`, `GET/DELETE /v1/teams/{id}`, `POST /v1/teams/{id}/renew`,
+  `GET /v1/status`, `GET /v1/gateways/{gw}/desired?after=N[&wait=25s]`, `POST /v1/gateways/{gw}/ack`.
+- `cmd/cpd`: env config (`CSTAM_DB_DSN`, `CSTAM_ADMIN_TOKEN`, `CSTAM_GATEWAY_TOKEN`,
+  `CSTAM_DRIVER=openstack|fake`, `CSTAM_NETWORK_ID/SUBNET_ID/TEAM_SG_ID`), migrates and seeds at start.
+Proof: `go test -race -tags integration -v ./internal/lifecycle/` (10 tests), `go test ./internal/api/`,
+and `deploy/dev/cpd-smoke.sh` (real cpd + Postgres in Docker + fake cloud, through curl).
+Decisions: a failed team keeps its name and slot for 10 min so people can read the error, then it
+is deleted. Deleting a team that is mid-creation waits for the create call, then deletes the VM.
 
 ### Task D: `cmd/gwagent`
 Wire the tested packages: poll `desired`, `applier.SyncRoutes`, write `/run/cstam/ready` after the
