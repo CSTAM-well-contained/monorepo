@@ -138,6 +138,14 @@ Original plan:
   deletes it, then lists that nothing `cstam-e2e-*` is left.
 
 ### Task C: `cpd` (control plane, `cmd/cpd`, `internal/api`, `internal/lifecycle`)
+Progress (2026-10-19): **C1 controller done** (`internal/lifecycle/controller.go`, `records.go`,
+wire types in `internal/model`). Team states provisioning -> ready | failed -> deleting -> deleted,
+one worker per team (bounded), long-poll `Desired`, `Ack` (refuses a generation ahead of the DB),
+reconciler (expiry, stuck teams after restart, failed-team cleanup, IP sweep with Neutron check,
+ending -> ended). Proof: `go test -race -tags integration -v ./internal/lifecycle/` (10 tests:
+delete during provisioning, restart recovery, ack-gated recycling, ...).
+Left: C2 HTTP handlers (`internal/api`), C3 `cmd/cpd` wiring (env config, driver choice).
+
 - REST (Go 1.22 `net/http` patterns, bearer admin token from env):
   `POST /v1/hackathons`, `DELETE /v1/hackathons/{h}` (tears down all teams),
   `POST /v1/hackathons/{h}/teams` -> 202 + team (state `provisioning`), `GET` list/show,
