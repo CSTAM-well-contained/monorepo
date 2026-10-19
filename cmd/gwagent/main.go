@@ -60,7 +60,7 @@ func main() {
 	flag.IntVar(&f.slots, "slots", 128, "team slot backends")
 	flag.IntVar(&f.rateLimit, "rate-limit", 2000, "requests per 10 s per Host")
 	flag.BoolVar(&f.bootstrap, "bootstrap", false, "write and check the HAProxy files, then exit")
-	flag.StringVar(&f.vrrpIface, "vrrp-iface", "", "VRRP interface, e.g. ens3; set it to also write the keepalived files")
+	flag.StringVar(&f.vrrpIface, "vrrp-iface", "", "with -bootstrap: VRRP interface, e.g. ens3; also writes the keepalived files")
 	flag.StringVar(&f.kaConf, "keepalived-conf", keepalived.DefaultConf, "where to write keepalived.conf")
 	flag.StringVar(&f.kaScriptUser, "vrrp-script-user", "keepalived_script", "user running the VRRP check script")
 	flag.BoolVar(&f.kaTrackProcess, "vrrp-track-process", true, "watch the haproxy process (off in containers)")
@@ -108,7 +108,7 @@ func run(ctx context.Context, log *slog.Logger, f flags) error {
 	if err := app.Bootstrap(ctx); err != nil {
 		return fmt.Errorf("bootstrap: %w", err)
 	}
-	if f.vrrpIface != "" {
+	if f.bootstrap && f.vrrpIface != "" { // root only: the agent itself runs unprivileged
 		ka, err := keepalived.ForGateway(f.name, f.vrrpIface)
 		if err != nil {
 			return fmt.Errorf("keepalived: %w", err)
