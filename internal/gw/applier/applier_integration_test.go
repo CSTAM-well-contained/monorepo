@@ -299,3 +299,42 @@ func TestSyncAfterFailedReload(t *testing.T) {
 		t.Fatalf("a after recovery: %d %q %v, want 200 team-a", code, body, err)
 	}
 }
+
+// TestApplyWithFailedRollback: HAProxy unreachable during a config apply makes the reload and
+// the rollback fail. The outcome must say so, and once HAProxy is back a route sync must
+// really set the servers (the runtime state was unknown).
+func TestApplyWithFailedRollback(t *testing.T) {
+	l := newLab(t)
+	ctx := context.Background()
+	a := teamApp(t, "team-a")
+	routes := []haproxy.Route{route("a.hacka.test", 1, a)}
+	if err := l.app.SyncRoutes(ctx, 1, routes); err != nil {
+		t.Fatal(err)
+	}
+	socks := []string{l.settings.AdminSocket, filepath.Join(l.settings.Dir, "master.sock")}
+	for _, s := range socks {
+		if err := os.Rename(s, s+".away"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := l.app.Settings()
+	s.Version = "v000002"
+	if r := l.app.ApplySettings(ctx, s); r.Outcome != Failed || r.Err == nil {
+		t.Fatalf("outcome %s (err %v), want failed", r.Outcome, r.Err)
+	}
+	for _, s := range socks {
+		if err := os.Rename(s+".away", s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := teamApp(t, "team-b")
+	routes = append(routes, route("b.hacka.test", 2, b))
+	if err := l.app.SyncRoutes(ctx, 2, routes); err != nil {
+		t.Fatal(err)
+	}
+	for host, want := range map[string]string{"a.hacka.test": "team-a", "b.hacka.test": "team-b"} {
+		if code, body, err := l.get(host); err != nil || code != 200 || body != want {
+			t.Fatalf("%s: %d %q %v, want 200 %q", host, code, body, err, want)
+		}
+	}
+}

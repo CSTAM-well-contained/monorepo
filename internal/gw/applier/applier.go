@@ -29,6 +29,8 @@ const (
 	Rejected Outcome = "rejected"
 	// RolledBack means it was loaded, failed verification, and the last good config serves again.
 	RolledBack Outcome = "rolled_back"
+	// Failed means the rollback failed too: HAProxy state is unknown, the gateway needs attention.
+	Failed Outcome = "failed"
 )
 
 // Result reports what happened and how long each phase took.
@@ -156,7 +158,8 @@ func (a *Applier) ApplySettings(ctx context.Context, s haproxy.Settings) Result 
 	t = time.Now()
 	if rbErr := a.restore(ctx); rbErr != nil {
 		res.Rollback = time.Since(t)
-		return done(RolledBack, fmt.Errorf("%w; ROLLBACK FAILED: %w", err, rbErr))
+		a.slots = nil // unknown runtime state: the next route sync sets every server again
+		return done(Failed, fmt.Errorf("%w; rollback failed: %w", err, rbErr))
 	}
 	res.Rollback = time.Since(t)
 	return done(RolledBack, err)
