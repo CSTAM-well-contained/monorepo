@@ -1,4 +1,4 @@
-# Handoff: where the work stands (2026-10-18)
+# Handoff: where the work stands (2026-10-19)
 
 Written for the next teammate **and their Claude Code**, which will work mostly on its own.
 First prompt to give Claude:
@@ -15,7 +15,8 @@ The human only has to put two secrets in place (sent privately by Ahmed), as des
 export OS_CLOUD=cstam PULUMI_CONFIG_PASSPHRASE=""
 openstack server list -f value -c Name -c Status     # cstam-cp, cstam-gw1, cstam-gw2: ACTIVE
 make lint test build                                 # green
-make test-int                                        # green, needs Docker (HAProxy, keepalived labs)
+make test-int                                        # green, needs Docker (HAProxy, keepalived labs, postgres:18-alpine)
+                                                     # CSTAM_TEST_PG_DSN=postgres://... reuses an existing Postgres instead
 cd infra/pulumi && pulumi stack select prod && pulumi preview   # "no changes" (floating IPs pending, see 4)
 ```
 
@@ -44,7 +45,7 @@ builds on Phase 1, so Phase 1 comes first.
 |---|---|---|
 | Zero-downtime reload, validation, sub-second rollback | 10 | **done, tested** (local Docker) |
 | Dual HA gateways, subdomain routing, failover | 15 | **core done, tested** (local Docker); agent binary missing |
-| Automated IPAM and reclamation, short leases | 10 | **schema done** (`migrations/00001_init.sql`, verified on Postgres 18); code missing |
+| Automated IPAM and reclamation, short leases | 10 | **IPAM done, tested** (`internal/ipam`, Postgres 18); wiring into cpd is Task C |
 | API-triggered OpenStack sandbox provisioning | 15 | missing |
 | Deliverables: code, architecture/data-flow diagram, demo video | | diagrams in the guide; official docs and video missing |
 
@@ -77,7 +78,29 @@ builds on Phase 1, so Phase 1 comes first.
 ## 5. Next tasks, in order
 Work like CLAUDE.md says: explain the plan, small diffs, tests, `make lint test build`, commit.
 
-### Task A: IPAM + store (`internal/store`, `internal/ipam`)
+### Task A: IPAM + store (`internal/store`, `internal/ipam`): DONE (2026-10-19)
+What exists: `store.Open/Migrate/InTx` (goose provider on the embedded FS, retry on 40001/40P01),
+`ipam.New()` with `Seed`, `Allocate(tx, team)`, `Release(tx, team) -> generation`, `Sweep(db, inUse)`,
+`Renew`, `Expired`, `Counts`. Every IP change writes an `events` row (`ip.allocated/quarantined/freed`).
+`internal/testutil.Postgres(t)` gives each test a fresh database (Docker, or `CSTAM_TEST_PG_DSN`).
+Proof: `go test -race -tags integration -v ./internal/ipam/` (7 tests, incl. 1000 parallel allocations).
+
+Decisions taken while building it (change them if you disagree):
+- Allocation takes a transaction-scoped advisory lock: the lowest free slot is computed from
+  committed rows, so without it two transactions could pick the same slot. Allocations are fast,
+  so serializing them costs nothing at our scale (128 slots).
+- `Release` refuses a team still in state `ready` (`ErrStillRouted`): the caller takes the route out
+  in the same transaction first. It also clears `teams.ip` (history is in `events`), otherwise the
+  unique index `teams_ip_live` would block reuse while the old team is still `deleting`.
+- `Sweep` frees an IP when it has been quarantined >= `Quarantine` (60 s default), every gateway
+  seen in the last `GatewayWindow` (5 min) acked `released_gen`, and the `inUse` callback (Neutron
+  port check, Task B) says no. If gateways are registered but none was seen recently, nothing is
+  freed (safer). No gateway registered at all (local dev) means free.
+- `go.mod` says `go 1.25.0`, not `go 1.25`: pgx v5.11.0 itself declares `go 1.25.0` (same Go line).
+  `go mod tidy` was not run: it wants the test-only SQLite driver of goose (a large download) that
+  we never build. `go build ./...`, `go vet` and golangci-lint are clean.
+
+Original design notes:
 Schema is in `migrations/00001_init.sql` (embedded by package `migrations`, apply with goose at cpd
 start). Design:
 - Pool = team pool .32-.191 from `internal/config/topology.go`, seeded idempotently

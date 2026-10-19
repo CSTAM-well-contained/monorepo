@@ -57,6 +57,16 @@ Benchmark and technical reports are written from this file.
   namespace). **To do on the real gateways**: expect HAProxy-kill failover well under 1 s with it.
 - Not covered by Docker: OVN GARP/rebinding time on FelCloud. Re-measure on the VMs (Phase 1 demo).
 
+### L3 – IPAM against real PostgreSQL  (2026-10-19, Emna's PC, WSL Debian 13, Docker)
+- Test: `go test -race -count=1 -tags integration -v ./internal/ipam/` (postgres:18-alpine, one fresh DB per test).
+- 1000 concurrent "create team + allocate" transactions, 128 slots: **128 allocated, 872 `ErrPoolExhausted`,
+  no IP or slot given twice**, 3.8 s total including the team inserts (race detector on).
+- 300 concurrent with 999 slots: 159 allocated (pool .32-.191 minus reserved .68), 141 exhausted; .68 never leased.
+- Quarantine sweep, 7 cases: freed only when every gateway seen in the last 5 min acked the release
+  generation; a gateway behind blocks it; a stale gateway (10 min) is ignored; all gateways stale blocks;
+  quarantine time and the Neutron in-use callback block it.
+- Cleanup done: yes (containers run with `--rm`, test databases dropped).
+
 ## Decisions log
 | Date | Decision | Based on | Alternatives rejected |
 |---|---|---|---|
@@ -64,3 +74,5 @@ Benchmark and technical reports are written from this file.
 | 2026-10-17 | IaC = Pulumi in Go, shared state in FelCloud S3 bucket `cstam-pulumi-state` | team of several people | local state, Pulumi Cloud, Heat, Terraform |
 | 2026-10-17 | Admin access: SSH/dashboard open to any IP, key-only, fail2ban on cp | teammates on changing networks | IP allowlist, WireGuard |
 | 2026-10-17 | soft-anti-affinity for the gateway server group | D1 | strict anti-affinity (fails on FelCloud) |
+| 2026-10-19 | IPAM allocation serialized by a transaction advisory lock | L3 (slot uniqueness from committed rows) | retry on unique violation |
+| 2026-10-19 | Sweep frees nothing when gateways exist but none was seen in 5 min | ch. 17 safety rule | free on timeout only |
