@@ -106,6 +106,20 @@ Benchmark and technical reports are written from this file.
      old generation (`TestSyncAfterFailedReload`).
 - Cleanup done: yes (`demo.sh down` removes containers and the network).
 
+### L7 - Concurrent registrations stress test  (2026-10-19, Emna's PC, WSL Debian 13, Docker)
+- Run: `CPD_WORKERS=<n> deploy/dev/demo.sh up`, then `HACK=<name> deploy/dev/demo.sh stress <N>`:
+  N `POST /teams` sent at the same time; a team counts as done when its own page (name + IP)
+  answers through the VIP.
+  | teams | workers | all API answers | routed | p50 | p95 | max |
+  |---|---|---|---|---|---|---|
+  | 20 | 4 | 0.32 s | 20/20 | 2.37 s | 4.02 s | 4.16 s |
+  | 20 | 16 | 0.40 s | 20/20 | 2.11 s | 2.42 s | 3.55 s |
+  | 50 | 16 | 0.51 s | 50/50 | 3.39 s | 4.93 s | 5.10 s |
+- 0 API errors, all IPs and slots distinct, every team `ready`. Sandbox creation (bounded by
+  `-workers`) dominates; with 4 workers the teardown also goes by batches of 4 (~0.65 s each).
+- Teardown of 50: sandboxes gone in 7 s, all 50 IPs free at 63 s.
+- Cleanup done: yes (`demo.sh down`).
+
 ## Decisions log
 | Date | Decision | Based on | Alternatives rejected |
 |---|---|---|---|

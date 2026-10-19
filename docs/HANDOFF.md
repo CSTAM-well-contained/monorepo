@@ -47,7 +47,7 @@ builds on Phase 1, so Phase 1 comes first.
 | Dual HA gateways, subdomain routing, failover | 15 | **done, tested** (local Docker): HAProxy + keepalived + `gwagent`; FelCloud run waits for floating IPs |
 | Automated IPAM and reclamation, short leases | 10 | **done, tested**: IPAM wired into cpd (lease expiry, ack-gated recycling) |
 | API-triggered OpenStack sandbox provisioning | 15 | **done**: REST API `cpd` + VM driver tested on FelCloud; full run on FelCloud waits for floating IPs |
-| Deliverables: code, architecture/data-flow diagram, demo video | | diagrams in the guide; **local demo stack ready** (`deploy/dev/demo.sh`, Task E); official docs and the video recording missing |
+| Deliverables: code, architecture/data-flow diagram, demo video | | **official docs in `docs/official/`** (Task F); local demo stack (`deploy/dev/demo.sh`, Task E); video recording missing |
 
 ### What exists and is tested
 - `internal/gw/haproxy`: renders `haproxy.cfg` (128 slot backends `be_slot001..`, canary `be_slot000`,
@@ -193,9 +193,18 @@ curl on a team, `failover pause`, `reload`, `teardown`). The local network is no
 between teams (Docker bridge); isolation is the job of `cstam-team` on FelCloud.
 When floating IPs exist, redo the demo on FelCloud.
 
-### Task F: official docs (deliverable, not team notes)
-`docs/official/`: architecture, data-flow diagram of the HA gateway (Excalidraw sources are in
-`docs/guide/diagrams/`), API reference, IPAM lifecycle, measured results from the notebook.
+### Task F: official docs: DONE (2026-10-19)
+`docs/official/`: `README.md` (requirement -> implementation -> evidence table), `architecture.md`
+(components, HA gateway data flow, reload/rollback, lifecycle and IPAM, security; reuses the guide
+PNG diagrams and says where the built system differs from them), `api.md`, `benchmark.md`
+(B1-B7 from notebook L1-L7, incl. the stress test `demo.sh stress N`: 50 teams p95 4.9 s).
+Keep `benchmark.md` up to date when FelCloud numbers arrive (failover with OVN, VM stress).
+
+### Task H: reject app ports the security group blocks
+`cstam-team` only opens TCP 80 and 8000-8099 from the gateways, but `CreateTeam` accepts any port:
+on FelCloud a team on port 3000 would be `ready` but unreachable. Validate `app_port` against the
+same ranges for the openstack driver (keep the ranges in one place shared with `infra/pulumi`),
+with a table test. Documented in `docs/official/api.md` meanwhile.
 
 ### Task G: systemd units for the FelCloud VMs (needed once floating IPs exist)
 `deploy/systemd/`: `gwagent.service` (`ExecStartPre=gwagent -bootstrap -vrrp-iface ens3`, ordered
