@@ -200,11 +200,11 @@ PNG diagrams and says where the built system differs from them), `api.md`, `benc
 (B1-B7 from notebook L1-L7, incl. the stress test `demo.sh stress N`: 50 teams p95 4.9 s).
 Keep `benchmark.md` up to date when FelCloud numbers arrive (failover with OVN, VM stress).
 
-### Task H: reject app ports the security group blocks
-`cstam-team` only opens TCP 80 and 8000-8099 from the gateways, but `CreateTeam` accepts any port:
-on FelCloud a team on port 3000 would be `ready` but unreachable. Validate `app_port` against the
-same ranges for the openstack driver (keep the ranges in one place shared with `infra/pulumi`),
-with a table test. Documented in `docs/official/api.md` meanwhile.
+### Task H: reject app ports the security group blocks: DONE (2026-10-19)
+`cstam-team` only opens TCP 80 and 8000-8099 from the gateways; `CreateTeam` accepted any port, so a
+team on port 3000 would have been `ready` but unreachable on FelCloud. Now `Spec.Validate` checks
+`config.TeamPortAllowed` (ranges in `config.TeamPorts`, Pulumi rule commented to match): the API
+answers 400. Applies to every driver, so the local demo behaves like FelCloud.
 
 ### Task G: systemd units for the FelCloud VMs (needed once floating IPs exist)
 `deploy/systemd/`: `gwagent.service` (`ExecStartPre=gwagent -bootstrap -vrrp-iface ens3`, ordered

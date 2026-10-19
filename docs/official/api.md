@@ -42,8 +42,8 @@ quarantined then freed. The hackathon goes to `ended` (its name stays taken).
 ```json
 {"name": "team5", "app_port": 8080, "image": "nginx:1.27"}
 ```
-`app_port` defaults to 80. On FelCloud the `cstam-team` security group only lets the gateways
-reach ports **80 and 8000-8099**: use one of those. `image` is optional: without it the sandbox serves a page with the team
+`app_port` defaults to 80 and must be **80 or 8000-8099**, the ports the `cstam-team` security
+group opens to the gateways (400 otherwise). `image` is optional: without it the sandbox serves a page with the team
 name and IP. The answer comes before the sandbox exists (`Location: /v1/teams/{id}`):
 ```json
 {"id": 12, "hackathon": "hack1", "name": "team5", "fqdn": "team5.hack1.cstam.felcloud.tn",
