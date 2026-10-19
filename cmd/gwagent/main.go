@@ -86,7 +86,7 @@ func settings(f flags) haproxy.Settings {
 	return haproxy.Settings{
 		Version: f.cfgVersion, GWName: f.name,
 		Dir: f.dir, AdminSocket: f.adminSock, SocketMode: "660",
-		User: f.user, Group: f.user,
+		User: f.user, Group: f.user, SocketGroup: f.user, // the agent (group haproxy) uses the socket
 		HTTPBind: f.httpBind, StatsBind: f.statsBind, CanaryAddr: f.canary,
 		InternalSources: sources, Slots: f.slots, RateLimit: f.rateLimit,
 	}
