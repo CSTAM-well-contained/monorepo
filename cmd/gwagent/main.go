@@ -3,7 +3,8 @@
 //
 // The gateway token comes from the environment (CSTAM_GATEWAY_TOKEN), never from a flag.
 // `gwagent -bootstrap` writes haproxy.cfg and the static files, checks them and exits: run it
-// before HAProxy starts (systemd ExecStartPre), then run gwagent itself.
+// before HAProxy starts (systemd ExecStartPre), then run gwagent itself. With -vrrp-iface it
+// also writes keepalived.conf and the VRRP scripts (start keepalived after it).
 package main
 
 import (
@@ -25,6 +26,7 @@ import (
 	"github.com/CSTAM-well-contained/monorepo/internal/gw/agent"
 	"github.com/CSTAM-well-contained/monorepo/internal/gw/applier"
 	"github.com/CSTAM-well-contained/monorepo/internal/gw/haproxy"
+	"github.com/CSTAM-well-contained/monorepo/internal/gw/keepalived"
 )
 
 var version = "dev" // set by -ldflags "-X main.version=..."
@@ -33,6 +35,8 @@ type flags struct {
 	name, cpd, runDir, stateFile                  string
 	dir, adminSock, masterSock, haproxyCmd        string
 	httpBind, statsBind, canary, cfgVersion, user string
+	vrrpIface, kaConf, kaScriptUser               string
+	kaTrackProcess                                bool
 	slots, rateLimit                              int
 	bootstrap                                     bool
 }
@@ -56,6 +60,10 @@ func main() {
 	flag.IntVar(&f.slots, "slots", 128, "team slot backends")
 	flag.IntVar(&f.rateLimit, "rate-limit", 2000, "requests per 10 s per Host")
 	flag.BoolVar(&f.bootstrap, "bootstrap", false, "write and check the HAProxy files, then exit")
+	flag.StringVar(&f.vrrpIface, "vrrp-iface", "", "VRRP interface, e.g. ens3; set it to also write the keepalived files")
+	flag.StringVar(&f.kaConf, "keepalived-conf", keepalived.DefaultConf, "where to write keepalived.conf")
+	flag.StringVar(&f.kaScriptUser, "vrrp-script-user", "keepalived_script", "user running the VRRP check script")
+	flag.BoolVar(&f.kaTrackProcess, "vrrp-track-process", true, "watch the haproxy process (off in containers)")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(version)
@@ -99,6 +107,17 @@ func run(ctx context.Context, log *slog.Logger, f flags) error {
 	}, s)
 	if err := app.Bootstrap(ctx); err != nil {
 		return fmt.Errorf("bootstrap: %w", err)
+	}
+	if f.vrrpIface != "" {
+		ka, err := keepalived.ForGateway(f.name, f.vrrpIface)
+		if err != nil {
+			return fmt.Errorf("keepalived: %w", err)
+		}
+		ka.ScriptUser, ka.TrackProcess = f.kaScriptUser, f.kaTrackProcess
+		if err := keepalived.Install(ka, f.kaConf); err != nil {
+			return err
+		}
+		log.Info("keepalived files written", "conf", f.kaConf, "priority", ka.Priority)
 	}
 	if f.bootstrap {
 		log.Info("haproxy files written", "dir", f.dir)

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/CSTAM-well-contained/monorepo/internal/config"
 )
 
 //go:embed keepalived.conf.tmpl
@@ -49,15 +51,21 @@ type Settings struct {
 	TrackProcess bool
 }
 
-var nameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
+var (
+	nameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
+	userRE = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`) // Unix user name
+)
 
 // Validate rejects settings that would render a wrong config.
 func (s *Settings) Validate() error {
 	var errs []error
-	for what, v := range map[string]string{"router id": s.RouterID, "interface": s.Interface, "script user": s.ScriptUser} {
+	for what, v := range map[string]string{"router id": s.RouterID, "interface": s.Interface} {
 		if !nameRE.MatchString(v) {
 			errs = append(errs, fmt.Errorf("%s %q is not a valid name", what, v))
 		}
+	}
+	if !userRE.MatchString(s.ScriptUser) {
+		errs = append(errs, fmt.Errorf("script user %q is not a valid user name", s.ScriptUser))
 	}
 	if s.VRID < 1 || s.VRID > 255 {
 		errs = append(errs, fmt.Errorf("vrid %d outside 1..255", s.VRID))
@@ -135,4 +143,81 @@ func ParseState(line string) (State, error) {
 	}
 	whole := int64(sec)
 	return State{Name: f[0], At: time.Unix(whole, int64((sec-float64(whole))*1e9)), Priority: prio}, nil
+}
+
+// Default install paths on a gateway.
+const (
+	DefaultConf    = "/etc/keepalived/keepalived.conf"
+	DefaultLibexec = "/usr/local/libexec/cstam"
+)
+
+// ForGateway returns the settings of gateway name (gw1, gw2) from the IP plan: gw1 has the
+// higher priority, each one names the other as its unicast peer.
+func ForGateway(name, iface string) (Settings, error) {
+	var idx int
+	switch name {
+	case "gw1":
+		idx = 0
+	case "gw2":
+		idx = 1
+	default:
+		return Settings{}, fmt.Errorf("gateway %q: want gw1 or gw2", name)
+	}
+	s := Settings{
+		RouterID: "cstam-" + name, Interface: iface, VRID: 51,
+		Priority: []int{150, 100}[idx], AdvertInt: 500 * time.Millisecond,
+		SrcIP: config.Gateways[idx], PeerIP: config.Gateways[1-idx], VIP: config.VIP,
+		ScriptUser:      "keepalived_script",
+		CheckScript:     DefaultLibexec + "/chk_gateway",
+		NotifyScript:    DefaultLibexec + "/vrrp-notify",
+		ForceBackupFile: "/run/cstam/force-backup",
+		TrackProcess:    true,
+	}
+	return s, s.Validate()
+}
+
+// Install renders keepalived.conf to conf and writes the two scripts where s says (mode
+// 0755: keepalived refuses scripts writable by others). It does not restart keepalived.
+func Install(s Settings, conf string) error {
+	data, err := Render(s)
+	if err != nil {
+		return err
+	}
+	files := []struct {
+		path string
+		data []byte
+		mode os.FileMode
+	}{{conf, data, 0o644}, {s.CheckScript, CheckScript, 0o755}, {s.NotifyScript, NotifyScript, 0o755}}
+	for _, f := range files {
+		if err := writeFile(f.path, f.data, f.mode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeFile replaces path atomically (temp file in the same directory, then rename).
+func writeFile(path string, data []byte, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { //nolint:gosec // system config dirs
+		return fmt.Errorf("keepalived install: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".cstam-*")
+	if err != nil {
+		return fmt.Errorf("keepalived install: %w", err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("keepalived install %s: %w", path, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("keepalived install %s: %w", path, err)
+	}
+	if err := os.Chmod(tmp.Name(), mode); err != nil {
+		return fmt.Errorf("keepalived install %s: %w", path, err)
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return fmt.Errorf("keepalived install %s: %w", path, err)
+	}
+	return nil
 }
