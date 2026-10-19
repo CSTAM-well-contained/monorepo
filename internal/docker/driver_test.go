@@ -59,6 +59,8 @@ func TestCreate(t *testing.T) {
 		{"new container", []func([]string) (string, error){notFound, running},
 			func([]string) (string, error) { return "abc123\n", nil }, nil, true},
 		{"already exists", []func([]string) (string, error){running, running}, nil, nil, false},
+		{"exists but stopped", []func([]string) (string, error){
+			func([]string) (string, error) { return "abc123 exited 10.20.0.32\n", nil }, running}, nil, nil, false},
 		{"exists with another IP", []func([]string) (string, error){
 			func([]string) (string, error) { return "abc123 running 10.20.0.40\n", nil }}, nil, lifecycle.ErrIPTaken, false},
 		{"IP held by someone else", []func([]string) (string, error){notFound},
@@ -78,8 +80,9 @@ func TestCreate(t *testing.T) {
 					i++
 					return f(a)
 				},
-				"run -d":      tt.run,
-				"logs --tail": func([]string) (string, error) { return "boom", nil },
+				"run -d":               tt.run,
+				"logs --tail":          func([]string) (string, error) { return "boom", nil },
+				"start cstam-h1-alpha": func([]string) (string, error) { return "cstam-h1-alpha", nil },
 			}}
 			ref, err := newDriver(t, s).Create(context.Background(), spec())
 			switch {

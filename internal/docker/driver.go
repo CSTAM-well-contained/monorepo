@@ -143,6 +143,11 @@ func (d *Driver) Create(ctx context.Context, s lifecycle.Spec) (lifecycle.Ref, e
 	if ok && c.IP != "" && c.IP != s.IP.String() {
 		return ref, fmt.Errorf("container %s exists with %s: %w", name, c.IP, lifecycle.ErrIPTaken)
 	}
+	if ok && (c.State == "exited" || c.State == "created") { // stopped (Docker restart): start it again
+		if out, err := d.cfg.Run(ctx, "start", name); err != nil {
+			return ref, fmt.Errorf("docker start %s: %w: %s", name, err, firstLine(out))
+		}
+	}
 	if !ok {
 		out, err := d.cfg.Run(ctx, d.runArgs(s)...)
 		if err != nil {
