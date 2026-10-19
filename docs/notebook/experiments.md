@@ -121,6 +121,18 @@ Benchmark and technical reports are written from this file.
 - Teardown of 50: sandboxes gone in 7 s, all 50 IPs free at 63 s.
 - Cleanup done: yes (`demo.sh down`).
 
+### D3 - Router lost its public IP  (2026-10-20 00:10, Emna's PC)
+- `pulumi preview --refresh`: `cstam-router` no longer has an external gateway. Its public IP
+  197.5.133.180 (set by Pulumi on 2026-10-17) was removed outside our code (no commit, no Pulumi
+  run). `private_router` (not ours) lost its gateway too: most likely FelCloud reclaimed router IPs
+  to refill the exhausted pool.
+- Effect: the VMs have **no outbound internet** any more (no SNAT), on top of no inbound.
+- `pulumi up` retried: both floating IPs still `ExternalIpAddressExhausted`. Re-adding the router
+  gateway was not forced: it needs a pool IP too and could fight FelCloud's cleanup.
+- FelCloud console checked through the browser (dashboard.felcloud.io): quota 0/50 floating IPs,
+  3/10 instances, one public network only (`INTERNET`, 197.5.133.0/24, pool .1-.230). No other way in.
+- Cleanup done: nothing created.
+
 ### D2 - Floating IP retry  (2026-10-19 21:54, Emna's PC)
 - `pulumi preview`: only `cstam-public-fip` (on the VIP port) and `cstam-cp-fip` to create, 30
   unchanged. `pulumi up`: both fail with **ExternalIpAddressExhausted** (pool 197.5.133.1-.230 on
