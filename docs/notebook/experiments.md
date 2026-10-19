@@ -121,16 +121,35 @@ Benchmark and technical reports are written from this file.
 - Teardown of 50: sandboxes gone in 7 s, all 50 IPs free at 63 s.
 - Cleanup done: yes (`demo.sh down`).
 
-### D3 - Router lost its public IP  (2026-10-20 00:10, Emna's PC)
-- `pulumi preview --refresh`: `cstam-router` no longer has an external gateway. Its public IP
-  197.5.133.180 (set by Pulumi on 2026-10-17) was removed outside our code (no commit, no Pulumi
-  run). `private_router` (not ours) lost its gateway too: most likely FelCloud reclaimed router IPs
-  to refill the exhausted pool.
-- Effect: the VMs have **no outbound internet** any more (no SNAT), on top of no inbound.
-- `pulumi up` retried: both floating IPs still `ExternalIpAddressExhausted`. Re-adding the router
-  gateway was not forced: it needs a pool IP too and could fight FelCloud's cleanup.
-- FelCloud console checked through the browser (dashboard.felcloud.io): quota 0/50 floating IPs,
-  3/10 instances, one public network only (`INTERNET`, 197.5.133.0/24, pool .1-.230). No other way in.
+### D3 - Where the public IPs went  (2026-10-20, Emna's PC, read-only checks)
+Timeline (UTC), from the FelCloud client area (felcloud.io/console > Real Time Billing > Floating
+IP), `openstack router show` (`updated_at`) and `pulumi stack history`:
+| When | What |
+|---|---|
+| 10-10 14:07-14:08 | FIP 197.5.133.147 allocated and released (1 min) |
+| 10-10 14:11-19:41 | FIPs **197.5.133.185 -> 10.20.0.10 (VIP)** and 197.5.133.75 -> 10.20.0.100, then **released** (before this repo existed: earlier lab) |
+| 10-16 | facts read: `private_router` (not ours) never had a gateway (guide ch. 3) |
+| 10-17 10:39 | `pulumi up` creates `cstam-router`, gateway IP **197.5.133.180**; both FIPs already `ExternalIpAddressExhausted` (D1) |
+| 10-17 11:14 | last successful `pulumi up` (teammate, deleted 2 lab resources, router untouched) |
+| 10-17 12:09 | **router gateway removed by hand** (router `updated_at`, revision 6), not by Pulumi |
+| 10-19, 10-20 | `pulumi up` retries: FIPs still exhausted |
+
+What went wrong:
+1. The project held public IPs on 10-10 (one already on the VIP .10) and released them; in a
+   full pool a released IP is gone for good.
+2. The router's own public IP (.180) was removed on 10-17 by a manual action (dashboard or
+   FelCloud). Pulumi does not refresh by default, so `pulumi preview` kept saying "unchanged" and
+   HANDOFF wrongly said the VMs had outbound internet. Since 10-17 the VMs have **no internet at all**.
+   (`pulumi preview --refresh` shows it.) An earlier version of this entry said FelCloud also
+   reclaimed `private_router`'s IP: wrong, it never had one.
+
+Self-service options checked (none frees a 197.5.133.x address):
+- Neutron: one external network with a public range (`INTERNET`, pool .1-.230); `Rancher-mgmt`
+  and `lb-mgmt-net` are internal. No IPv6. `ip availability` and specific-IP requests are admin-only.
+  An Octavia load balancer with a public VIP draws from the same pool.
+- Client area: Load Balancer (same pool), Pack Offer (not open yet), **VPS** ("1 IPv4", Starter
+  2 vCPU/4 GB, 14.76 TND/month, balance 174 TND). Not ordered: it is a purchase, and the VPS is
+  not on `cstam-sandbox-net`, so it cannot reach our VMs while the router has no gateway.
 - Cleanup done: nothing created.
 
 ### D2 - Floating IP retry  (2026-10-19 21:54, Emna's PC)

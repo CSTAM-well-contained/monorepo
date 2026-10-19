@@ -70,9 +70,10 @@ builds on Phase 1, so Phase 1 comes first.
   Last retry 2026-10-19 21:54 (`pulumi up`): still `ExternalIpAddressExhausted`, the FelCloud
   public pool is full (quota is not the problem). Notebook D2. **Needs a human: the mentors must
   free or reserve 2 public IPs for the project.**
-  2026-10-20 00:10: the router's own public IP (197.5.133.180) was also removed outside our code,
-  probably by FelCloud reclaiming IPs (notebook D3). Ask the mentors for **3** public IPs: router
-  gateway (outbound for the VMs), VIP and cp. Then `pulumi up` restores all three.
+  The router's own public IP (197.5.133.180) was removed by hand on 2026-10-17 12:09 UTC (not by
+  Pulumi), and the project had released 3 FIPs on 2026-10-10 (timeline in notebook D3). Ask the
+  mentors for **3** public IPs: router gateway (outbound for the VMs), VIP and cp. Then
+  `pulumi up` restores all three. Always use `pulumi preview --refresh` to see manual changes.
 - What still works without them: `cpd` can run **on the laptop** and call the FelCloud API
   (Keystone/Nova/Neutron are public), so provisioning can be built and tested for real.
   Since 2026-10-20 the VMs have no internet at all (router gateway removed, D3); the dashboard
