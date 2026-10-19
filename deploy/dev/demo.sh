@@ -4,8 +4,9 @@
 # running HAProxy + keepalived + gwagent and share the VIP; each team is a container at its
 # IPAM address. Needs Docker, curl, jq and `make build`.
 #
-#   demo.sh up            start everything
+#   demo.sh up            start everything (CPD_WORKERS=n: sandbox operations in flight, default 4)
 #   demo.sh teams [N]     create hackathon $HACK (default demo) with N teams (default 3), curl each via the VIP
+#   demo.sh stress [N]    N registrations at once (default 20): latency p50/p95, distinct IPs
 #   demo.sh failover [pause|kill]
 #                         break the MASTER gateway while probing the VIP every 20 ms
 #   demo.sh reload        broken HAProxy config -> rollback (applier integration tests)
@@ -58,7 +59,7 @@ up() {
     docker network create --subnet "$SUBNET" --gateway "$ROUTER" --ip-range "${VIP_IP%.*}.0/29" "$DNET" >/dev/null
   [ -s "$STATE/admin.token" ] || openssl rand -hex 16 >"$STATE/admin.token"
   [ -s "$STATE/gw.env" ] || echo "CSTAM_GATEWAY_TOKEN=$(openssl rand -hex 16)" >"$STATE/gw.env"
-  chmod 600 "$STATE"/*
+  chmod 600 "$STATE/admin.token" "$STATE/gw.env"
 
   echo "== postgres"
   docker inspect "$PG" >/dev/null 2>&1 ||
@@ -71,7 +72,7 @@ up() {
     ( set -a; . "$STATE/gw.env"; set +a
       CSTAM_DB_DSN=postgres://postgres:demo@127.0.0.1:55433/postgres CSTAM_DRIVER=docker \
       CSTAM_DOCKER_NETWORK=$DNET CSTAM_ADMIN_TOKEN=$(cat "$STATE/admin.token") \
-      exec setsid ./bin/cpd -listen "$ROUTER:8080" ) >"$STATE/cpd.log" 2>&1 &
+      exec setsid ./bin/cpd -listen "$ROUTER:8080" -workers "${CPD_WORKERS:-4}" ) >"$STATE/cpd.log" 2>&1 &
     echo $! >"$STATE/cpd.pid"
     for _ in $(seq 40); do curl -sf "$CPD/healthz" >/dev/null && break; sleep 0.25; done
     curl -sf "$CPD/healthz" >/dev/null || { tail -5 "$STATE/cpd.log"; die "cpd did not start"; }
@@ -110,6 +111,47 @@ teams() {
   done
   echo "== teams in cpd"
   api GET "/v1/hackathons/$HACK/teams" | jq -r '.[] | "\(.name)\t\(.state)\t\(.ip)\tslot \(.slot)"'
+}
+
+# stress N: N team registrations sent at the same time; reports the time until each team
+# answers through the VIP with its own page, and checks that IPs and slots are all distinct.
+stress() {
+  local n=${1:-20} dir="$STATE/stress"
+  rm -rf "$dir" && mkdir -p "$dir"
+  api POST /v1/hackathons "{\"name\":\"$HACK\",\"domain\":\"$DOMAIN\",\"lease_ttl_seconds\":3600}" >/dev/null
+  local t0; t0=$(now)
+  for i in $(seq -f %03g "$n"); do
+    api POST "/v1/hackathons/$HACK/teams" "{\"name\":\"s$i\",\"app_port\":8080}" >"$dir/post-$i" &
+  done
+  wait
+  echo "== $n registrations sent in parallel; all API answers in $(ms "$t0" "$(now)") ms"
+  local rejected; rejected=$(cat "$dir"/post-* | jq -s '[.[] | select(.error)] | length')
+  local pending=() i
+  for i in $(seq -f %03g "$n"); do jq -e .error "$dir/post-$i" >/dev/null || pending+=("$i"); done
+  while [ ${#pending[@]} -gt 0 ] && [ "$(ms "$t0" "$(now)")" -lt 180000 ]; do
+    local left=()
+    for i in "${pending[@]}"; do
+      local body; body=$(curl -s -m 0.5 -H "Host: s$i.$DOMAIN" "http://$VIP_IP/" || true)
+      if [[ $body == "team s$i of $HACK at "* ]]; then
+        echo "$(ms "$t0" "$(now)") s$i ${body##* }" >>"$dir/routed"
+      else
+        left+=("$i")
+      fi
+    done
+    pending=("${left[@]+"${left[@]}"}")
+    sleep 0.1
+  done
+  sort -n "$dir/routed" -o "$dir/routed" 2>/dev/null || touch "$dir/routed"
+  local teams; teams=$(api GET "/v1/hackathons/$HACK/teams")
+  awk -v n="$n" -v rejected="$rejected" -v never="${#pending[@]}" '
+    { t[NR] = $1 }
+    END {
+      if (NR == 0) { print "no team routed"; exit 1 }
+      p50 = t[int((NR - 1) * 0.50) + 1]; p95 = t[int((NR - 1) * 0.95) + 1]
+      printf "routed %d/%d (rejected by the API %d, never routed %d)\n", NR, n, rejected, never
+      printf "API call to own page through the VIP: min %d ms, p50 %d ms, p95 %d ms, max %d ms\n", t[1], p50, p95, t[NR]
+    }' "$dir/routed"
+  echo "distinct IPs $(jq '[.[].ip] | unique | length' <<<"$teams"), distinct slots $(jq '[.[].slot] | unique | length' <<<"$teams"), states $(jq -c 'group_by(.state) | map({(.[0].state): length}) | add' <<<"$teams")"
 }
 
 failover() {
@@ -192,6 +234,6 @@ down() {
 }
 
 case "${1:-}" in
-  up|teams|failover|reload|teardown|status|down) "$@" ;;
-  *) sed -n '2,15p' "$0"; exit 2 ;;
+  up|teams|stress|failover|reload|teardown|status|down) "$@" ;;
+  *) sed -n "2,16p" "$0"; exit 2 ;;
 esac
