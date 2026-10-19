@@ -44,7 +44,7 @@ builds on Phase 1, so Phase 1 comes first.
 | Phase 1 part | Pts | Status |
 |---|---|---|
 | Zero-downtime reload, validation, sub-second rollback | 10 | **done, tested** (local Docker) |
-| Dual HA gateways, subdomain routing, failover | 15 | **core done, tested** (local Docker); agent binary missing |
+| Dual HA gateways, subdomain routing, failover | 15 | **done, tested** (local Docker): HAProxy + keepalived + `gwagent`; FelCloud run waits for floating IPs |
 | Automated IPAM and reclamation, short leases | 10 | **done, tested**: IPAM wired into cpd (lease expiry, ack-gated recycling) |
 | API-triggered OpenStack sandbox provisioning | 15 | **done**: REST API `cpd` + VM driver tested on FelCloud; full run on FelCloud waits for floating IPs |
 | Deliverables: code, architecture/data-flow diagram, demo video | | diagrams in the guide; official docs and video missing |
@@ -157,11 +157,19 @@ and `deploy/dev/cpd-smoke.sh` (real cpd + Postgres in Docker + fake cloud, throu
 Decisions: a failed team keeps its name and slot for 10 min so people can read the error, then it
 is deleted. Deleting a team that is mid-creation waits for the create call, then deletes the VM.
 
-### Task D: `cmd/gwagent`
-Wire the tested packages: poll `desired`, `applier.SyncRoutes`, write `/run/cstam/ready` after the
-first successful sync, ack, report VRRP state from `/run/cstam/vrrp.state`, serve the canary on
-127.0.0.1:9102. Flags for every path and URL (no hardcoded IPs, use `internal/config`).
-Test: gwagent + HAProxy in Docker against a fake desired-state server.
+### Task D: `cmd/gwagent`: DONE (2026-10-19)
+What exists: `internal/gw/agent` (the loop) and `cmd/gwagent` (flags, canary on 127.0.0.1:9102,
+`-bootstrap` for systemd ExecStartPre). The agent removes `/run/cstam/ready` at start, restores the
+routes saved in `/var/lib/cstam/desired.json`, long-polls `cpd`, applies with `applier.SyncRoutes`,
+saves, writes `ready` (`synced`, or `stale` after 10 s without cpd), acks. It never applies an
+older generation, does not ack a generation it failed to apply (backoff 1 s -> 15 s), and acks at
+once when `/run/cstam/vrrp.state` changes (polled every 500 ms: fsnotify is not an approved dep).
+Token from `CSTAM_GATEWAY_TOKEN` only.
+Proof: `go test -race ./internal/gw/agent/` (8 unit tests) and
+`go test -tags integration -v -run TestAgentDrivesRealHAProxy ./internal/gw/agent/` (fake cpd ->
+agent -> real HAProxy 3.2 in Docker -> team apps; a new route serves 24 ms after cpd publishes it).
+Not done: force-backup flag from cpd (manual failover is the file `/run/cstam/force-backup`),
+traffic log streaming (guide ch. 13, optional), systemd units in `deploy/systemd`.
 
 ### Task E: local demo stack + video
 `docker compose` with Postgres, cpd, gw1/gw2 (HAProxy + keepalived + gwagent), and a Docker sandbox

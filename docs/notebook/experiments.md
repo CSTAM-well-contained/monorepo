@@ -73,6 +73,12 @@ Benchmark and technical reports are written from this file.
 - `cstam-e2e-t8ff67f` on 10.20.0.199: **created and ACTIVE in 23 s, deleted (server + port) in 14 s**.
 - Cleanup done: yes, `openstack server list` shows only cp/gw1/gw2, no `cstam-e2e-*` port left.
 
+### L5 - Gateway agent end to end with real HAProxy  (2026-10-19, Emna's PC, WSL Debian 13, Docker)
+- Test: `go test -tags integration -v -run TestAgentDrivesRealHAProxy ./internal/gw/agent/` (haproxy:3.2).
+- Fake cpd publishes generation 2 with a new team: **routed 24 ms later**, by the runtime API
+  (no reload). Removing a team: its host stops answering 200, the other team keeps serving, ack follows.
+- Cleanup done: yes (container `--rm`, temp dir removed).
+
 ## Decisions log
 | Date | Decision | Based on | Alternatives rejected |
 |---|---|---|---|
