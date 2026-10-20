@@ -162,6 +162,11 @@ Self-service options checked (none frees a 197.5.133.x address):
   password, so it gives no login. Other external networks (`Rancher-mgmt`, `lb-mgmt-net`) are
   FelCloud management networks, not internet access.
 - Retry: `cd infra/pulumi && pulumi preview && pulumi up` (same two creates).
+- Retry 2026-10-20 20:22: `pulumi preview --refresh` = router gateway + 2 FIPs (3 changes, 29
+  unchanged, nothing replaced); `pulumi up`: all 3 fail, **ExternalIpAddressExhausted** on
+  `INTERNET`, nothing created. Neutron lists `floating-ip-port-forwarding-detail` (not the base
+  `floating-ip-port-forwarding` alias): one FIP forwarding 80 -> VIP and 22 -> cp may work, to
+  test as soon as one IP exists (it would cut the ask to 2 IPs: router gateway + 1 FIP).
 
 ### L8 - systemd units on systemd gateways  (2026-10-19, Emna's PC, WSL Debian 13, Docker)
 - Run: `GW_MODE=systemd deploy/dev/demo.sh up`: gw1/gw2 boot systemd (lab image + systemd, stand-in
