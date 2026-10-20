@@ -67,6 +67,7 @@ type Gateway struct {
 	LastSeen      time.Time  `json:"last_seen"`
 	Alive         bool       `json:"alive"`   // acked within GatewayAlive
 	InSync        bool       `json:"in_sync"` // serves the current generation
+	ForceBackup   bool       `json:"force_backup"`
 }
 
 // Status is the platform overview (dashboard, demo).
@@ -224,6 +225,14 @@ func (c *Controller) desired(ctx context.Context) (model.Desired, error) {
 				return err
 			}
 			d.Routes, err = pgx.CollectRows(rows, pgx.RowToStructByPos[model.Route])
+			if err != nil {
+				return err
+			}
+			rows, err = tx.Query(ctx, `SELECT name FROM gateways WHERE force_backup ORDER BY name`)
+			if err != nil {
+				return err
+			}
+			d.ForceBackup, err = pgx.CollectRows(rows, pgx.RowTo[string])
 			return err
 		})
 	if err != nil {
@@ -298,7 +307,7 @@ func (c *Controller) Status(ctx context.Context) (Status, error) {
 	}
 	rows, err = c.db.Query(ctx,
 		`SELECT name, acked_gen, config_version, vrrp_state, vrrp_since, last_seen,
-		   last_seen > now() - $1 * interval '1 millisecond', acked_gen >= $2
+		   last_seen > now() - $1 * interval '1 millisecond', acked_gen >= $2, force_backup
 		 FROM gateways ORDER BY name`, GatewayAlive.Milliseconds(), s.Generation)
 	if err != nil {
 		return s, fmt.Errorf("status: %w", err)

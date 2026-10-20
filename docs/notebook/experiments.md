@@ -203,6 +203,21 @@ Self-service options checked (none frees a 197.5.133.x address):
   bypass the limit. `TestOpenAPIListsEveryRoute` keeps `docs/official/openapi.yaml` in step.
 - Cleanup done: yes (`demo.sh down`).
 
+### L10 - Planned failover through the API  (2026-10-20, Emna's PC, WSL Debian 13, Docker)
+- Setup: `GW_MODE=systemd demo.sh up` (agent unprivileged as on the VMs), 2 teams, then
+  `demo.sh failover planned`: `POST /v1/gateways/<master>/failover`, probe every 20 ms, failback.
+- Result (twice): gw2 took over **304-310 ms** after the API call, **1 of ~175 probes** failed
+  (200 ms probe timeout). Event log: `gateway.failover gw1`, `gateway.vrrp gw1 FAULT`,
+  `gateway.vrrp gw2 MASTER`, `gateway.failback gw1`, `gateway.vrrp gw1 BACKUP` (nopreempt).
+- Refusal: with gw2 forced down, `failover gw1` is refused (409 `no healthy peer gateway`).
+- **Bug found (there since Task G)**: on systemd gateways cpd always saw `vrrp_state: ""`.
+  keepalived runs the notify script with umask 077, so `/run/cstam/vrrp.state` was root 0600 and
+  the unprivileged agent could not read it (the plain Docker lab runs the agent as root, so the
+  tests missed it). Fix: `umask 022` in `vrrp-notify.sh`; MASTER/BACKUP now reach cpd.
+- The force-backup file is created by keepalived as root (`init_file 0 overwrite`); the agent
+  replaces it by rename (it owns `/run/cstam`) and keepalived picks the new file up.
+- Cleanup done: no (demo stack kept running for the dashboard work).
+
 ## Decisions log
 | Date | Decision | Based on | Alternatives rejected |
 |---|---|---|---|
@@ -214,3 +229,5 @@ Self-service options checked (none frees a 197.5.133.x address):
 | 2026-10-19 | Sweep frees nothing when gateways exist but none was seen in 5 min | ch. 17 safety rule | free on timeout only |
 | 2026-10-19 | Local demo = plain `docker run` script, team sandboxes as containers (docker driver) | no floating IPs yet; saves the compose plugin download | docker compose, kind |
 | 2026-10-19 | gwagent `-bootstrap -vrrp-iface` also renders keepalived.conf and the VRRP scripts | one source of truth for the IP plan (gw1 prio 150) | hand-written keepalived.conf in cloud-init |
+| 2026-10-20 | Planned failover: cpd publishes `force_backup`, the agent writes keepalived's track file; refused without a healthy in-sync peer | guide ch. 21 section 12.6, L10 | SSH to the gateway, killing a process |
+| 2026-10-20 | Dashboard in plain HTML/JS embedded in cpd, polling the REST API | no Node on the machines, metered network, one binary | React + Vite (guide ch. 21), htmx (extra download) |

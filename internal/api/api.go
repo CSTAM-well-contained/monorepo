@@ -37,6 +37,8 @@ type Controller interface {
 	Events(ctx context.Context, after int64, limit int) ([]lifecycle.Event, error)
 	Addresses(ctx context.Context) ([]lifecycle.Address, error)
 	Routes(ctx context.Context) (model.Desired, error)
+	Failover(ctx context.Context, gw string, force bool) error
+	Failback(ctx context.Context, gw string) error
 }
 
 // MaxWait caps the desired-state long-poll (below common proxy idle timeouts).
@@ -87,6 +89,8 @@ func (s *Server) routes() []route {
 		{"GET /v1/events", adminOnly, s.events},
 		{"GET /v1/ipam", adminOnly, s.addresses},
 		{"GET /v1/routes", adminOnly, s.routeTable},
+		{"POST /v1/gateways/{gw}/failover", adminOnly, s.failover},
+		{"POST /v1/gateways/{gw}/failback", adminOnly, s.failback},
 		{"GET /v1/gateways/{gw}/desired", gatewayOnly, s.desired},
 		{"POST /v1/gateways/{gw}/ack", gatewayOnly, s.ack},
 	}
@@ -257,6 +261,34 @@ func (s *Server) routeTable(w http.ResponseWriter, r *http.Request) {
 	s.reply(w, r, http.StatusOK, d, err)
 }
 
+// failover: planned failover of one gateway; ?force=true skips the healthy-peer check.
+func (s *Server) failover(w http.ResponseWriter, r *http.Request) {
+	force := false
+	if v := r.URL.Query().Get("force"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "force must be true or false")
+			return
+		}
+		force = b
+	}
+	s.gatewayAction(w, r, s.C.Failover(r.Context(), r.PathValue("gw"), force))
+}
+
+func (s *Server) failback(w http.ResponseWriter, r *http.Request) {
+	s.gatewayAction(w, r, s.C.Failback(r.Context(), r.PathValue("gw")))
+}
+
+// gatewayAction answers a failover or failback with the new status.
+func (s *Server) gatewayAction(w http.ResponseWriter, r *http.Request, err error) {
+	if err != nil {
+		s.reply(w, r, 0, nil, err)
+		return
+	}
+	st, err := s.C.Status(r.Context())
+	s.reply(w, r, http.StatusAccepted, st, err)
+}
+
 func (s *Server) desired(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	after := int64(-1) // no "after": answer at once
@@ -328,7 +360,7 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request, status int, v any
 		code = http.StatusBadRequest
 	case errors.Is(err, lifecycle.ErrNotFound):
 		code = http.StatusNotFound
-	case errors.Is(err, lifecycle.ErrConflict), errors.Is(err, lifecycle.ErrNotActive),
+	case errors.Is(err, lifecycle.ErrConflict), errors.Is(err, lifecycle.ErrNotActive), errors.Is(err, lifecycle.ErrNoPeer),
 		errors.Is(err, ipam.ErrLeaseExpired):
 		code = http.StatusConflict
 	case errors.Is(err, ipam.ErrPoolExhausted):

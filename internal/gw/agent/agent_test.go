@@ -338,3 +338,42 @@ func TestNewRejectsBadConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestForceBackupFollowsCPD(t *testing.T) {
+	app := &fakeApplier{fail: errors.New("haproxy down")} // a failover must not wait for routes
+	d := desired(2)
+	d.ForceBackup = []string{"gw2"}
+	cpd := &fakeCPD{desired: d}
+	r := newRig(t, app, cpd)
+	fb := filepath.Join(r.run, ForceBackupFile)
+	read := func() string { b, _ := os.ReadFile(filepath.Clean(fb)); return string(b) }
+	r.start(t)
+	eventually(t, "0 for another gateway", func() bool { return read() == "0\n" })
+
+	d = desired(3)
+	d.ForceBackup = []string{"gw1", "gw2"}
+	cpd.set(d)
+	eventually(t, "1 when cpd names gw1", func() bool { return read() == "1\n" })
+
+	// keepalived restarted and reset the file (as root, so the agent replaces it)
+	if err := os.WriteFile(fb, []byte("0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "1 re-asserted", func() bool { return read() == "1\n" })
+
+	cpd.set(desired(4))
+	eventually(t, "0 after failback", func() bool { return read() == "0\n" })
+}
+
+func TestForceBackupUntouchedUntilKnown(t *testing.T) {
+	r := newRig(t, &fakeApplier{}, &fakeCPD{down: true})
+	fb := filepath.Join(r.run, ForceBackupFile)
+	if err := os.WriteFile(fb, []byte("0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.start(t)
+	eventually(t, "stale ready", func() bool { return r.readyFile() == "stale\n" })
+	if st, err := os.Stat(fb); err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("file rewritten before cpd or a saved state said anything: %v %v", st, err)
+	}
+}

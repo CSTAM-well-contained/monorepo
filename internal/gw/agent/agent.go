@@ -21,7 +21,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -63,7 +65,11 @@ type Agent struct {
 	ready   bool
 	vrrp    string
 	ackSent int64 // last generation acked, for logs
+	forced  *bool // force-backup asked by cpd; nil until the agent knows
 }
+
+// ForceBackupFile is the file keepalived's vrrp_track_file reads in RunDir: 1 = step down.
+const ForceBackupFile = "force-backup"
 
 // New checks the config and returns an agent.
 func New(cfg Config, app Applier) (*Agent, error) {
@@ -122,6 +128,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			backoff = min(2*backoff, a.cfg.MaxBackoff)
 			continue
 		}
+		a.setForced(d) // even if the routes below fail: a failover must still work
 		if err := a.apply(ctx, d); err != nil {
 			a.cfg.Log.Error("apply routes", "generation", d.Generation, "err", err.Error())
 			if !sleep(ctx, backoff) {
@@ -189,6 +196,7 @@ func (a *Agent) restore(ctx context.Context) {
 		a.cfg.Log.Warn("saved state unreadable", "err", err.Error())
 		return
 	}
+	a.setForced(d)
 	routes, err := Convert(d.Routes)
 	if err == nil && d.Generation >= 0 {
 		err = a.app.SyncRoutes(ctx, uint64(d.Generation), routes)
@@ -241,6 +249,7 @@ func (a *Agent) watchVRRP(ctx context.Context) {
 	t := time.NewTicker(a.cfg.VRRPPoll)
 	defer t.Stop()
 	for {
+		a.syncForced() // keepalived resets the file to 0 when it restarts
 		s := a.readVRRP()
 		a.mu.Lock()
 		changed := s != a.vrrp
@@ -258,6 +267,38 @@ func (a *Agent) watchVRRP(ctx context.Context) {
 		case <-t.C:
 		}
 	}
+}
+
+// setForced records whether cpd asks this gateway to step down, and writes the file.
+func (a *Agent) setForced(d model.Desired) {
+	on := slices.Contains(d.ForceBackup, a.cfg.Name)
+	a.mu.Lock()
+	a.forced = &on
+	a.mu.Unlock()
+	a.syncForced()
+}
+
+// syncForced makes the force-backup file say what cpd asked. keepalived (root) creates the
+// file, so it is replaced by rename: the run dir belongs to the agent, the file does not.
+func (a *Agent) syncForced() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.forced == nil {
+		return // not known yet: leave keepalived's initial 0
+	}
+	want := "0"
+	if *a.forced {
+		want = "1"
+	}
+	path := filepath.Join(a.cfg.RunDir, ForceBackupFile)
+	if cur, err := os.ReadFile(filepath.Clean(path)); err == nil && strings.TrimSpace(string(cur)) == want {
+		return
+	}
+	if err := haproxy.WriteFileAtomic(path, []byte(want+"\n")); err != nil {
+		a.cfg.Log.Error("write force-backup file", "err", err.Error())
+		return
+	}
+	a.cfg.Log.Info("force-backup set", "value", want)
 }
 
 func (a *Agent) readVRRP() string {

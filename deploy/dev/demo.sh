@@ -8,8 +8,9 @@
 #                         GW_MODE=systemd: gateways run systemd with the units of deploy/systemd)
 #   demo.sh teams [N]     create hackathon $HACK (default demo) with N teams (default 3), curl each via the VIP
 #   demo.sh stress [N]    N registrations at once (default 20): latency p50/p95, distinct IPs
-#   demo.sh failover [pause|kill]
+#   demo.sh failover [pause|kill|planned]
 #                         break the MASTER gateway while probing the VIP every 20 ms
+#                         (planned: POST /v1/gateways/<master>/failover, then failback)
 #   demo.sh load [SECONDS] [WORKERS] [pause|kill]
 #                         HTTP load through the VIP on every ready team (cstamctl load); with
 #                         pause|kill the MASTER is broken 5 s in (RATE=n: total req/s, default
@@ -208,10 +209,13 @@ failover() {
   case $how in
     pause) docker pause "cstam-demo-$m" >/dev/null ;;
     kill)  docker exec "cstam-demo-$m" pkill -KILL haproxy ;;
-    *) die "failover pause|kill" ;;
+    planned) api POST "/v1/gateways/$m/failover" | jq -c "{alerts}" ;;
+    *) die "failover pause|kill|planned" ;;
   esac
   wait "$probe"
-  if [ "$how" = pause ]; then
+  if [ "$how" = planned ]; then
+    api POST "/v1/gateways/$m/failback" >/dev/null
+  elif [ "$how" = pause ]; then
     docker unpause "cstam-demo-$m" >/dev/null
   else
     # systemd restarts HAProxy by itself (Restart=always); the plain mode has no supervisor

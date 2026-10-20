@@ -10,11 +10,15 @@ type Route struct {
 	Port int    `json:"port"`
 }
 
-// Desired is the full routing table at one generation. Every change of the published
-// routes increases Generation; a gateway applies the whole table, never a diff.
+// Desired is the full desired state of the gateways at one generation. Every change of the
+// published routes or of ForceBackup increases Generation; a gateway applies the whole
+// table, never a diff.
 type Desired struct {
 	Generation int64   `json:"generation"`
 	Routes     []Route `json:"routes"`
+	// ForceBackup names the gateways asked to step down (manual failover): their agent
+	// writes 1 into keepalived's force-backup file, the others write 0.
+	ForceBackup []string `json:"force_backup,omitempty"`
 }
 
 // Ack is what a gateway reports after applying a generation.

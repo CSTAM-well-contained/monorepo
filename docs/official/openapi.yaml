@@ -181,6 +181,36 @@ paths:
         "200": {description: routes, content: {application/json: {schema: {$ref: "#/components/schemas/Desired"}}}}
         "401": {$ref: "#/components/responses/Unauthorized"}
 
+  /v1/gateways/{gw}/failover:
+    parameters: [{$ref: "#/components/parameters/Gateway"}]
+    post:
+      tags: [gateways]
+      summary: Planned failover, the gateway steps down and its peer takes the VIP
+      description: >
+        cpd lists the gateway in `force_backup` of the desired state; its agent writes 1 into
+        keepalived's force-backup file, the instance goes to FAULT and the peer becomes MASTER
+        within about one advert. No process is killed. Refused (409) when no other gateway is
+        alive, in sync, out of FAULT and not forced down, unless `force=true`.
+      parameters:
+        - {name: force, in: query, schema: {type: boolean, default: false}, description: "skip the healthy-peer check"}
+      responses:
+        "202": {description: requested, content: {application/json: {schema: {$ref: "#/components/schemas/Status"}}}}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /v1/gateways/{gw}/failback:
+    parameters: [{$ref: "#/components/parameters/Gateway"}]
+    post:
+      tags: [gateways]
+      summary: Clear a planned failover; the gateway comes back as BACKUP (nopreempt)
+      responses:
+        "202": {description: requested, content: {application/json: {schema: {$ref: "#/components/schemas/Status"}}}}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
   /v1/gateways/{gw}/desired:
     parameters: [{$ref: "#/components/parameters/Gateway"}]
     get:
@@ -302,6 +332,7 @@ components:
         last_seen: {type: string, format: date-time}
         alive: {type: boolean, description: "acked in the last 40 s"}
         in_sync: {type: boolean, description: "serves the current routes generation"}
+        force_backup: {type: boolean, description: "asked to step down by a planned failover"}
     Status:
       type: object
       properties:
@@ -339,6 +370,7 @@ components:
       properties:
         generation: {type: integer}
         routes: {type: array, items: {$ref: "#/components/schemas/Route"}}
+        force_backup: {type: array, items: {type: string}, description: "gateways asked to step down (planned failover)"}
     Ack:
       type: object
       additionalProperties: false

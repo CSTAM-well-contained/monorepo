@@ -91,6 +91,14 @@ func (s *stub) Addresses(context.Context) ([]lifecycle.Address, error) {
 	s.last = "Addresses"
 	return []lifecycle.Address{}, s.err
 }
+func (s *stub) Failover(_ context.Context, gw string, force bool) error {
+	s.last = fmt.Sprint("Failover ", gw, " ", force)
+	return s.err
+}
+func (s *stub) Failback(_ context.Context, gw string) error {
+	s.last = "Failback " + gw
+	return s.err
+}
 func (s *stub) Routes(context.Context) (model.Desired, error) {
 	s.last = "Routes"
 	return model.Desired{Routes: []model.Route{}}, s.err
@@ -135,6 +143,10 @@ func TestRoutes(t *testing.T) {
 		{"events bad limit", "GET", "/v1/events?limit=9999", adminTok, "", 400, ""},
 		{"ipam", "GET", "/v1/ipam", adminTok, "", 200, "Addresses"},
 		{"routes", "GET", "/v1/routes", adminTok, "", 200, "Routes"},
+		{"failover", "POST", "/v1/gateways/gw1/failover", adminTok, "", 202, "Status"},
+		{"failover needs admin", "POST", "/v1/gateways/gw1/failover", gwTok, "", 401, ""},
+		{"failover bad force", "POST", "/v1/gateways/gw1/failover?force=maybe", adminTok, "", 400, ""},
+		{"failback", "POST", "/v1/gateways/gw2/failback", adminTok, "", 202, "Status"},
 		{"create hackathon", "POST", "/v1/hackathons", adminTok, `{"name":"h1","domain":"h1.example.org"}`, 201, "CreateHackathon"},
 		{"unknown field", "POST", "/v1/hackathons", adminTok, `{"name":"h1","bogus":1}`, 400, ""},
 		{"negative ttl", "POST", "/v1/hackathons", adminTok, `{"name":"h1","lease_ttl_seconds":-1}`, 400, ""},
@@ -193,6 +205,19 @@ func TestErrorMapping(t *testing.T) {
 				t.Fatal("no Retry-After")
 			}
 		})
+	}
+}
+
+func TestFailoverCalls(t *testing.T) {
+	// a success answers with the status (last call), so check the arguments on a refusal
+	st2 := &stub{err: fmt.Errorf("x: %w", lifecycle.ErrNoPeer)}
+	w := do(t, st2, "POST", "/v1/gateways/gw1/failover?force=true", adminTok, "")
+	if st2.last != "Failover gw1 true" || w.Code != 409 {
+		t.Fatalf("call %q code %d", st2.last, w.Code)
+	}
+	st3 := &stub{err: fmt.Errorf("x: %w", lifecycle.ErrNotFound)}
+	if w := do(t, st3, "POST", "/v1/gateways/gw9/failback", adminTok, ""); st3.last != "Failback gw9" || w.Code != 404 {
+		t.Fatalf("call %q code %d", st3.last, w.Code)
 	}
 }
 

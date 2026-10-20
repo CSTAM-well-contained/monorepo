@@ -247,6 +247,25 @@ Not run for real: `cpd.service` (needs the cp VM).
 4. Check: `curl -H "Host: <team>.<domain>" http://<public FIP>/`, then the failover demo with
    `echo c | sudo tee /proc/sysrq-trigger` on the MASTER (guide ch. 20), and record it (notebook).
 
+### Task J: Phase 3 admin dashboard (10 pts): IN PROGRESS (started 2026-10-20)
+Why now: tasks A-I are done and FelCloud work waits for floating IPs; the dashboard is the
+largest unscored part of the brief. Design decision (notebook decisions log): **plain HTML/JS
+embedded in `cpd`, polling the REST API**, not React + Vite as in guide ch. 21: no Node on our
+machines, metered network, and one binary to deploy. Every value the UI shows is computed by
+the API (gateway `alive`/`in_sync`, `alerts`), never in the browser. Slices:
+1. DONE: read API `GET /v1/teams` (all hackathons), `/v1/events`, `/v1/ipam`, `/v1/routes`;
+   `/v1/status` gateways gain `alive`, `in_sync`, `force_backup`, and `alerts` (split brain,
+   no master, behind, silent, FAULT). Proof: `go test -tags integration -run TestDashboard ./internal/lifecycle/`.
+2. DONE: planned failover `POST /v1/gateways/{gw}/failover[?force=true]` and `/failback`
+   (migration 00002, `Desired.force_backup`, agent writes `/run/cstam/force-backup` by rename and
+   re-asserts it every 500 ms). `demo.sh failover planned`: 304-310 ms, 1 probe lost (notebook
+   L10). Fixed on the way: `vrrp-notify.sh` wrote `vrrp.state` 0600 root, so on systemd
+   gateways cpd never saw MASTER/BACKUP.
+3. TODO: config versions + manual rollback (cpd owns HAProxy settings versions, rollback =
+   new version with old content; agent runs `applier.ApplySettings`).
+4. TODO: live traffic logs (HAProxy JSON log -> agent UDP syslog -> cpd ring buffer -> `GET /v1/traffic`).
+5. TODO: the dashboard (`web/`, `go:embed`, served by cpd at `/`), docs, video script.
+
 ## 6. Good to know
 - Guide errata found by testing, already fixed in ch. 12: keepalived 2.3 refuses `delay 0` in
   `vrrp_track_process` and an explicit `track_interface` on the instance's own interface.
