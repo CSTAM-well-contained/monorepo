@@ -28,6 +28,7 @@ import (
 	"github.com/CSTAM-well-contained/monorepo/internal/gw/applier"
 	"github.com/CSTAM-well-contained/monorepo/internal/gw/haproxy"
 	"github.com/CSTAM-well-contained/monorepo/internal/gw/keepalived"
+	"github.com/CSTAM-well-contained/monorepo/internal/gw/logs"
 )
 
 var version = "dev" // set by -ldflags "-X main.version=..."
@@ -36,6 +37,7 @@ type flags struct {
 	name, cpd, runDir, stateFile                  string
 	dir, adminSock, masterSock, haproxyCmd        string
 	httpBind, statsBind, canary, cfgVersion, user string
+	trafficLog                                    string
 	vrrpIface, kaConf, kaScriptUser               string
 	kaTrackProcess                                bool
 	slots, rateLimit                              int
@@ -56,6 +58,7 @@ func main() {
 	flag.StringVar(&f.httpBind, "http-bind", ":80", "HAProxy HTTP listener")
 	flag.StringVar(&f.statsBind, "stats-bind", "", "HAProxy stats listener, e.g. 10.20.0.11:8404 (empty: none)")
 	flag.StringVar(&f.canary, "canary", "127.0.0.1:9102", "canary responder address")
+	flag.StringVar(&f.trafficLog, "traffic-log", "127.0.0.1:5514", "UDP address HAProxy sends its traffic log to, read by the agent for the dashboard (empty: none)")
 	flag.StringVar(&f.cfgVersion, "config-version", "v1", "HAProxy config version, served in X-Config-Version")
 	flag.StringVar(&f.user, "haproxy-user", "", "user/group HAProxy drops to (empty: keep)")
 	flag.IntVar(&f.slots, "slots", 128, "team slot backends")
@@ -88,7 +91,7 @@ func settings(f flags) haproxy.Settings {
 		Version: f.cfgVersion, GWName: f.name,
 		Dir: f.dir, AdminSocket: f.adminSock, SocketMode: "660",
 		User: f.user, Group: f.user, SocketGroup: f.user, // the agent (group haproxy) uses the socket
-		HTTPBind: f.httpBind, StatsBind: f.statsBind, CanaryAddr: f.canary,
+		HTTPBind: f.httpBind, StatsBind: f.statsBind, CanaryAddr: f.canary, TrafficLog: f.trafficLog,
 		InternalSources: sources, Slots: f.slots, RateLimit: f.rateLimit,
 	}
 }
@@ -125,8 +128,12 @@ func run(ctx context.Context, log *slog.Logger, f flags) error {
 		return nil
 	}
 	token := os.Getenv("CSTAM_GATEWAY_TOKEN")
+	var traffic *logs.Collector
+	if f.trafficLog != "" {
+		traffic = logs.New(0)
+	}
 	ag, err := agent.New(agent.Config{Name: f.name, CPD: strings.TrimRight(f.cpd, "/"), Token: token,
-		RunDir: f.runDir, StateFile: f.stateFile, Log: log}, app)
+		RunDir: f.runDir, StateFile: f.stateFile, Log: log, Traffic: traffic}, app)
 	if err != nil {
 		return err
 	}
@@ -144,6 +151,14 @@ func run(ctx context.Context, log *slog.Logger, f flags) error {
 			errc <- fmt.Errorf("canary: %w", err)
 		}
 	}()
+	if traffic != nil {
+		go func() {
+			// best effort: without it the gateway still serves, only the dashboard misses lines
+			if err := traffic.Listen(ctx, f.trafficLog); err != nil {
+				log.Error("traffic log listener stopped", "err", err.Error())
+			}
+		}()
+	}
 	go func() { errc <- ag.Run(ctx) }()
 	log.Info("gwagent started", "cpd", f.cpd)
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/CSTAM-well-contained/monorepo/internal/gw/applier"
 	"github.com/CSTAM-well-contained/monorepo/internal/gw/haproxy"
+	"github.com/CSTAM-well-contained/monorepo/internal/gw/logs"
 	"github.com/CSTAM-well-contained/monorepo/internal/model"
 )
 
@@ -94,6 +95,7 @@ type fakeCPD struct {
 	acks    []model.Ack
 	down    bool
 	hold    time.Duration // long-poll hold when nothing changed (default 100 ms)
+	traffic []model.TrafficBatch
 }
 
 func (c *fakeCPD) set(d model.Desired) {
@@ -158,6 +160,16 @@ func (c *fakeCPD) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		c.mu.Lock()
 		c.acks = append(c.acks, a)
+		c.mu.Unlock()
+		_, _ = fmt.Fprint(w, "{}")
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/gateways/gw1/traffic":
+		var b model.TrafficBatch
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		c.mu.Lock()
+		c.traffic = append(c.traffic, b)
 		c.mu.Unlock()
 		_, _ = fmt.Fprint(w, "{}")
 	default:
@@ -472,4 +484,49 @@ func TestInvalidConfigRejectedLocally(t *testing.T) {
 	if got := app.applied(); len(got) != 0 {
 		t.Fatalf("invalid settings reached HAProxy: %v", got)
 	}
+}
+
+func TestTrafficShipped(t *testing.T) {
+	cpd := &fakeCPD{desired: desired(1)}
+	r := newRig(t, &fakeApplier{}, cpd)
+	col := logs.New(1000)
+	r.agent.cfg.Traffic, r.agent.cfg.ShipEvery = col, 20*time.Millisecond
+	for i := range model.MaxTrafficBatch + 10 {
+		col.Add(model.TrafficLine{Host: "a.h.example.org", Status: 200, TotalMS: i})
+	}
+	r.start(t)
+	total := func() (n int) {
+		cpd.mu.Lock()
+		defer cpd.mu.Unlock()
+		for _, b := range cpd.traffic {
+			n += len(b.Lines)
+			if len(b.Lines) > model.MaxTrafficBatch {
+				t.Errorf("batch of %d lines", len(b.Lines))
+			}
+		}
+		return n
+	}
+	eventually(t, "all lines shipped", func() bool { return total() == model.MaxTrafficBatch+10 })
+
+	// cpd down: the lines are counted as dropped and reported with the next batch
+	cpd.mu.Lock()
+	cpd.down = true
+	cpd.mu.Unlock()
+	col.Add(model.TrafficLine{Status: 500})
+	eventually(t, "lost while down", func() bool { _, d := col.Drain(0); col.Lost(d); return d == 1 })
+	cpd.mu.Lock()
+	cpd.down = false
+	cpd.mu.Unlock()
+	col.Add(model.TrafficLine{Status: 201})
+	eventually(t, "drop count reported", func() bool {
+		cpd.mu.Lock()
+		defer cpd.mu.Unlock()
+		var dropped int64
+		got201 := false
+		for _, b := range cpd.traffic {
+			dropped += b.Dropped
+			got201 = got201 || slices.ContainsFunc(b.Lines, func(l model.TrafficLine) bool { return l.Status == 201 })
+		}
+		return dropped == 1 && got201
+	})
 }

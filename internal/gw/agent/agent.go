@@ -30,6 +30,7 @@ import (
 	"github.com/CSTAM-well-contained/monorepo/internal/gw/applier"
 	"github.com/CSTAM-well-contained/monorepo/internal/gw/haproxy"
 	"github.com/CSTAM-well-contained/monorepo/internal/gw/keepalived"
+	"github.com/CSTAM-well-contained/monorepo/internal/gw/logs"
 	"github.com/CSTAM-well-contained/monorepo/internal/model"
 )
 
@@ -54,6 +55,10 @@ type Config struct {
 	VRRPPoll   time.Duration // how often vrrp.state is read (default 500 ms)
 	MaxBackoff time.Duration // between failed calls to cpd (default 15 s)
 	Log        *slog.Logger
+
+	// Traffic, when set, is shipped to cpd every ShipEvery (default 1 s) for the dashboard.
+	Traffic   *logs.Collector
+	ShipEvery time.Duration
 }
 
 // Agent runs one gateway.
@@ -96,6 +101,9 @@ func New(cfg Config, app Applier) (*Agent, error) {
 	if cfg.MaxBackoff <= 0 {
 		cfg.MaxBackoff = 15 * time.Second
 	}
+	if cfg.ShipEvery <= 0 {
+		cfg.ShipEvery = time.Second
+	}
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.NewJSONHandler(io.Discard, nil))
 	}
@@ -113,6 +121,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	start := time.Now()
 
 	go a.watchVRRP(ctx)
+	if a.cfg.Traffic != nil {
+		go a.shipTraffic(ctx)
+	}
 
 	after := int64(-1) // first call: answer at once
 	backoff := time.Second
@@ -304,6 +315,34 @@ func (a *Agent) watchVRRP(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		}
+	}
+}
+
+// shipTraffic sends the buffered traffic lines to cpd. Lines that cannot be sent are counted
+// as dropped, never retried: the log is for watching live, the benchmark has its own numbers.
+func (a *Agent) shipTraffic(ctx context.Context) {
+	t := time.NewTicker(a.cfg.ShipEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		for range 10 { // at most 10 batches per tick: 1500 lines/s reach the dashboard
+			lines, dropped := a.cfg.Traffic.Drain(model.MaxTrafficBatch)
+			if len(lines) == 0 && dropped == 0 {
+				break
+			}
+			b := model.TrafficBatch{Lines: lines, Dropped: dropped}
+			if err := a.call(ctx, http.MethodPost, "/v1/gateways/"+a.cfg.Name+"/traffic", b, nil); err != nil {
+				a.cfg.Traffic.Lost(int64(len(lines)) + dropped)
+				break
+			}
+			if len(lines) < model.MaxTrafficBatch {
+				break
+			}
 		}
 	}
 }

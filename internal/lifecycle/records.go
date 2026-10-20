@@ -80,7 +80,7 @@ type Status struct {
 	Pool       map[string]int `json:"ip_pool"`
 	Teams      map[string]int `json:"teams"`
 	Gateways   []Gateway      `json:"gateways"`
-	Alerts     []string       `json:"alerts"` // split brain, no master, gateway behind or silent
+	Alerts     []string       `json:"alerts"`         // split brain, no master, gateway behind or silent
 	Config     string         `json:"config_version"` // newest config version, "" before the first push
 }
 

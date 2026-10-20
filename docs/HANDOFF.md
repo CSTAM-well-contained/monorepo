@@ -268,7 +268,11 @@ the API (gateway `alive`/`in_sync`, `alerts`), never in the browser. Slices:
    version rolled back in 139 ms (0.80 s total), typo rejected in 23 ms, 0 failed requests
    (notebook L11). Note: an agent restart keeps flag settings until the first fetch re-applies
    the newest version (one extra reload).
-4. TODO: live traffic logs (HAProxy JSON log -> agent UDP syslog -> cpd ring buffer -> `GET /v1/traffic`).
+4. DONE: live traffic logs. `internal/gw/logs` (UDP syslog collector, bounded, drops counted),
+   agent ships batches every 1 s, cpd keeps 2000 lines in memory + per-second counters:
+   `GET /v1/traffic?after=&host=&limit=` (lines, req/s and 5xx per gateway over 10 s),
+   `POST /v1/gateways/{gw}/traffic` (gateway token). `gwagent -traffic-log 127.0.0.1:5514` is
+   on by default (notebook L12). Lost on cpd restart by design (live view, not an audit log).
 5. TODO: the dashboard (`web/`, `go:embed`, served by cpd at `/`), docs, video script.
 
 ## 6. Good to know

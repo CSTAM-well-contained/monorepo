@@ -32,6 +32,32 @@ type Config struct {
 	Extra     []string `json:"extra,omitempty"` // raw lines in the HTTP frontend (admin escape hatch)
 }
 
+// TrafficLine is one HTTP request seen by a gateway (the JSON log-format of haproxy.cfg).
+type TrafficLine struct {
+	TS      string `json:"ts"` // HAProxy %tr, e.g. 20/Oct/2026:17:45:00.123
+	GW      string `json:"gw"`
+	Client  string `json:"client"`
+	Host    string `json:"host"`
+	Method  string `json:"method"`
+	Path    string `json:"path"` // without the query string
+	Backend string `json:"be"`
+	Server  string `json:"srv"`
+	Status  int    `json:"status"`
+	Bytes   int64  `json:"bytes"`
+	TotalMS int    `json:"tt"` // total time
+	RespMS  int    `json:"tr"` // server response time
+	Term    string `json:"term"`
+}
+
+// TrafficBatch is what a gateway agent ships to cpd about once a second.
+type TrafficBatch struct {
+	Lines   []TrafficLine `json:"lines"`
+	Dropped int64         `json:"dropped"` // lines lost on the gateway since the last batch
+}
+
+// MaxTrafficBatch caps the lines of one batch (the API body limit is 64 KiB).
+const MaxTrafficBatch = 150
+
 // Ack is what a gateway reports after applying a generation.
 type Ack struct {
 	Generation    int64  `json:"generation"`

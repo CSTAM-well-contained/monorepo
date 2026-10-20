@@ -236,6 +236,17 @@ Self-service options checked (none frees a 197.5.133.x address):
   filled the 300 characters stored per gateway).
 - Cleanup done: no (demo stack kept running for the dashboard work).
 
+### L12 - Live traffic log path  (2026-10-20, Emna's PC, Docker, systemd gateways)
+- Path: HAProxy JSON log-format -> UDP syslog 127.0.0.1:5514 (`gwagent -traffic-log`, default on)
+  -> agent buffer (2000 lines, oldest dropped and counted) -> `POST /v1/gateways/{gw}/traffic`
+  every 1 s (<= 150 lines per batch, <= 10 batches per second) -> cpd ring (2000 lines) and
+  per-second counters -> `GET /v1/traffic?after=`.
+- 30 requests on 3 teams + one unknown host: all lines arrived within ~1 s with host, path, status,
+  backend slot and timings; `/__gw/healthz` (keepalived check every second) is filtered out.
+- `demo.sh load 12 32` (450 req/s, 5,400 requests, 0 errors): `/v1/traffic` reported 379 req/s
+  over its 10 s window 9 s into the run (window still holds the ramp-up), 0 lines dropped.
+- Cleanup done: no (demo stack kept running for the dashboard work).
+
 ## Decisions log
 | Date | Decision | Based on | Alternatives rejected |
 |---|---|---|---|

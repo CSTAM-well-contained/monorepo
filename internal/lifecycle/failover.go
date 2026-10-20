@@ -46,7 +46,7 @@ func (c *Controller) setForceBackup(ctx context.Context, gw string, on, force bo
 			return fmt.Errorf("failover: %w", err)
 		}
 		type gwRow struct {
-			Name, VRRP           string
+			Name, VRRP            string
 			Forced, Alive, InSync bool
 		}
 		gws, err := pgx.CollectRows(rows, pgx.RowToStructByPos[gwRow])

@@ -181,6 +181,39 @@ paths:
         "200": {description: routes, content: {application/json: {schema: {$ref: "#/components/schemas/Desired"}}}}
         "401": {$ref: "#/components/responses/Unauthorized"}
 
+  /v1/traffic:
+    get:
+      tags: [status]
+      summary: Live traffic lines from the gateways and request rates (best effort, in memory)
+      parameters:
+        - {name: after, in: query, schema: {type: integer, minimum: 0}, description: "lines with a larger id; poll with the last_id of the previous answer"}
+        - {name: host, in: query, schema: {type: string}, description: "only this Host (team FQDN)"}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 500, default: 200}, description: "the newest lines are kept"}
+      responses:
+        "200": {description: lines and per-gateway stats over 10 s, content: {application/json: {schema: {$ref: "#/components/schemas/TrafficPage"}}}}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /v1/gateways/{gw}/traffic:
+    parameters: [{$ref: "#/components/parameters/Gateway"}]
+    post:
+      tags: [gateways]
+      summary: Ship a batch of traffic lines (gateway agent, about once a second)
+      security: [{gateway: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                lines: {type: array, maxItems: 150, items: {$ref: "#/components/schemas/TrafficLine"}}
+                dropped: {type: integer, minimum: 0, description: "lines lost on the gateway since the last batch"}
+      responses:
+        "200": {description: stored, content: {application/json: {schema: {type: object, properties: {accepted: {type: integer}}}}}}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
   /v1/config:
     get:
       tags: [config]
@@ -381,6 +414,42 @@ components:
         gateways: {type: array, items: {$ref: "#/components/schemas/Gateway"}}
         alerts: {type: array, items: {type: string}, description: "split brain, no master, gateway behind or silent, config refused; empty when healthy"}
         config_version: {type: string, description: "newest config version, empty before the first push"}
+    TrafficLine:
+      type: object
+      description: one request, from the HAProxy JSON log-format (path without query string)
+      properties:
+        ts: {type: string, example: "20/Oct/2026:17:45:00.120"}
+        gw: {type: string}
+        client: {type: string}
+        host: {type: string}
+        method: {type: string}
+        path: {type: string}
+        be: {type: string, example: be_slot001}
+        srv: {type: string}
+        status: {type: integer}
+        bytes: {type: integer}
+        tt: {type: integer, description: "total time, ms"}
+        tr: {type: integer, description: "server response time, ms"}
+        term: {type: string, description: "HAProxy termination state"}
+    TrafficPage:
+      type: object
+      properties:
+        lines:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/TrafficLine"
+              - {type: object, properties: {id: {type: integer}, at: {type: string, format: date-time}}}
+        last_id: {type: integer}
+        gateways:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              requests_10s: {type: integer}
+              rps: {type: number}
+              errors_5xx_10s: {type: integer}
+              dropped_total: {type: integer}
     ConfigIn:
       type: object
       additionalProperties: false

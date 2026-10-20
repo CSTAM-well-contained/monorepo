@@ -55,6 +55,7 @@ type Server struct {
 	AdminToken   string
 	GatewayToken string
 	Log          *slog.Logger
+	Traffic      *TrafficRing // live traffic lines from the gateways; created by Handler if nil
 }
 
 // token says which bearer token a route needs.
@@ -94,6 +95,8 @@ func (s *Server) routes() []route {
 		{"GET /v1/routes", adminOnly, s.routeTable},
 		{"POST /v1/gateways/{gw}/failover", adminOnly, s.failover},
 		{"POST /v1/gateways/{gw}/failback", adminOnly, s.failback},
+		{"GET /v1/traffic", adminOnly, s.trafficPage},
+		{"POST /v1/gateways/{gw}/traffic", gatewayOnly, s.pushTraffic},
 		{"GET /v1/config", adminOnly, s.configVersions},
 		{"POST /v1/config", adminOnly, s.pushConfig},
 		{"POST /v1/config/{v}/rollback", adminOnly, s.rollbackConfig},
@@ -104,6 +107,9 @@ func (s *Server) routes() []route {
 
 // Handler returns the routes of the API.
 func (s *Server) Handler() http.Handler {
+	if s.Traffic == nil {
+		s.Traffic = NewTrafficRing(0)
+	}
 	mux := http.NewServeMux()
 	for _, r := range s.routes() {
 		switch r.token {
