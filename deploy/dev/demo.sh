@@ -85,8 +85,9 @@ up() {
   docker network inspect "$DNET" >/dev/null 2>&1 ||
     docker network create --subnet "$SUBNET" --gateway "$ROUTER" --ip-range "${VIP_IP%.*}.0/29" "$DNET" >/dev/null
   [ -s "$STATE/admin.token" ] || openssl rand -hex 16 >"$STATE/admin.token"
+  [ -s "$STATE/viewer.token" ] || openssl rand -hex 16 >"$STATE/viewer.token"
   [ -s "$STATE/gw.env" ] || echo "CSTAM_GATEWAY_TOKEN=$(openssl rand -hex 16)" >"$STATE/gw.env"
-  chmod 600 "$STATE/admin.token" "$STATE/gw.env"
+  chmod 600 "$STATE/admin.token" "$STATE/viewer.token" "$STATE/gw.env"
 
   echo "== postgres"
   docker inspect "$PG" >/dev/null 2>&1 ||
@@ -98,7 +99,7 @@ up() {
   if ! curl -sf "$CPD/healthz" >/dev/null; then
     ( set -a; . "$STATE/gw.env"; set +a
       CSTAM_DB_DSN=postgres://postgres:demo@127.0.0.1:55433/postgres CSTAM_DRIVER=docker \
-      CSTAM_DOCKER_NETWORK=$DNET CSTAM_ADMIN_TOKEN=$(cat "$STATE/admin.token") \
+      CSTAM_DOCKER_NETWORK=$DNET CSTAM_ADMIN_TOKEN=$(cat "$STATE/admin.token") CSTAM_VIEWER_TOKEN=$(cat "$STATE/viewer.token") \
       exec setsid ./bin/cpd -listen "$ROUTER:8443" -workers "${CPD_WORKERS:-4}" ) >"$STATE/cpd.log" 2>&1 &
     echo $! >"$STATE/cpd.pid"
     for _ in $(seq 40); do curl -sf "$CPD/healthz" >/dev/null && break; sleep 0.25; done
@@ -127,7 +128,7 @@ up() {
   echo "== waiting for the VIP $VIP_IP"
   for _ in $(seq 60); do [ -n "$(master)" ] && break; sleep 0.5; done
   [ -n "$(master)" ] || die "nobody answers on the VIP (docker logs cstam-demo-gw1)"
-  echo "VIP served by $(master). API: $CPD, admin token in $STATE/admin.token"
+  echo "VIP served by $(master). API and dashboard: $CPD/, tokens in $STATE/admin.token and viewer.token (read-only)"
 }
 
 teams() {

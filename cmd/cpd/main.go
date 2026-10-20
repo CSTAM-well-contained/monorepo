@@ -80,7 +80,8 @@ func run(ctx context.Context, log *slog.Logger, listen string, workers int, ever
 	}
 	ctl := lifecycle.NewController(ctx, pool, m, sbx, log, workers)
 	srv := &api.Server{C: ctl, AdminToken: os.Getenv("CSTAM_ADMIN_TOKEN"),
-		GatewayToken: os.Getenv("CSTAM_GATEWAY_TOKEN"), Log: log, UI: web.Handler()}
+		GatewayToken: os.Getenv("CSTAM_GATEWAY_TOKEN"), ViewerToken: os.Getenv("CSTAM_VIEWER_TOKEN"),
+		Log: log, UI: web.Handler()}
 	if err := srv.Validate(); err != nil {
 		return err
 	}

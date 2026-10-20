@@ -145,6 +145,14 @@ paths:
         "200": {description: status, content: {application/json: {schema: {$ref: "#/components/schemas/Status"}}}}
         "401": {$ref: "#/components/responses/Unauthorized"}
 
+  /v1/whoami:
+    get:
+      tags: [status]
+      summary: Which role the token has (admin, or viewer = read-only); the dashboard hides its buttons for a viewer
+      responses:
+        "200": {description: role, content: {application/json: {schema: {type: object, properties: {role: {type: string, enum: [admin, viewer]}}}}}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
   /v1/teams:
     get:
       tags: [teams]
@@ -320,6 +328,8 @@ components:
   securitySchemes:
     admin: {type: http, scheme: bearer, description: CSTAM_ADMIN_TOKEN (at least 16 characters)}
     gateway: {type: http, scheme: bearer, description: CSTAM_GATEWAY_TOKEN, different from the admin token}
+    # Optional CSTAM_VIEWER_TOKEN: accepted on every admin GET route (403 on writes), for a
+    # read-only dashboard. It is the same "admin" scheme from the client's point of view.
 
   parameters:
     Hackathon: {name: h, in: path, required: true, schema: {$ref: "#/components/schemas/Label"}}

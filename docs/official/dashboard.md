@@ -55,7 +55,10 @@ the browser sends the token in a header (an `EventSource` cannot), and one secon
 what a person watching a failover notices.
 
 ## Security
-- Same origin as the API, admin bearer token, no cookies (so no CSRF surface).
+- Same origin as the API, bearer token, no cookies (so no CSRF surface).
+- Two roles: the **admin** token, and an optional **viewer** token (`CSTAM_VIEWER_TOKEN`) for the
+  jury: every page live, a "read-only" badge, no form and no button; the API answers 403 to any
+  write with it (`TestViewerToken`), so hiding the buttons is comfort, not the protection.
 - `Content-Security-Policy: default-src 'none'; script-src 'self'; ...; frame-ancestors 'none'`,
   plus `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`.
 - Every value is inserted as text (`textContent` / text nodes). Host headers and paths in the

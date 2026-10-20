@@ -11,6 +11,12 @@ All bodies are JSON. Authentication: `Authorization: Bearer <token>`.
 
 `GET /healthz` needs no token and answers `{"status":"ok"}`.
 
+## Read-only viewer token
+`CSTAM_VIEWER_TOKEN` (optional, at least 16 characters, different from the other two) is
+accepted on every admin `GET` route and refused with **403** on every write. Give it to the jury:
+they can watch the dashboard live on their own laptop but cannot spin up, tear down, fail over
+or push a config. `GET /v1/whoami` answers `{"role": "admin"}` or `{"role": "viewer"}`.
+
 ## Errors
 
 `{"error": "<message>"}` with:

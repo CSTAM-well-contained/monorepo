@@ -49,11 +49,13 @@ const MaxWait = 25 * time.Second
 
 const maxBody = 64 << 10
 
-// Server holds the handlers. Both tokens are required and must differ.
+// Server holds the handlers. The admin and gateway tokens are required; the viewer token is
+// optional (read-only dashboard for the jury). All tokens must differ.
 type Server struct {
 	C            Controller
 	AdminToken   string
 	GatewayToken string
+	ViewerToken  string // may call every admin GET, nothing else
 	Log          *slog.Logger
 	Traffic      *TrafficRing // live traffic lines from the gateways; created by Handler if nil
 	UI           http.Handler // the dashboard (package web), served at /; nil = API only
@@ -90,6 +92,7 @@ func (s *Server) routes() []route {
 		{"POST /v1/teams/{id}/renew", adminOnly, s.renewTeam},
 		{"DELETE /v1/teams/{id}", adminOnly, s.deleteTeam},
 		{"GET /v1/status", adminOnly, s.status},
+		{"GET /v1/whoami", adminOnly, s.whoami},
 		{"GET /v1/teams", adminOnly, s.allTeams},
 		{"GET /v1/events", adminOnly, s.events},
 		{"GET /v1/ipam", adminOnly, s.addresses},
@@ -120,7 +123,7 @@ func (s *Server) Handler() http.Handler {
 	for _, r := range s.routes() {
 		switch r.token {
 		case adminOnly:
-			mux.Handle(r.pattern, s.auth(s.AdminToken, r.h))
+			mux.Handle(r.pattern, s.adminAuth(strings.HasPrefix(r.pattern, "GET "), r.h))
 		case gatewayOnly:
 			mux.Handle(r.pattern, s.auth(s.GatewayToken, r.h))
 		default:
@@ -140,6 +143,40 @@ func (s *Server) auth(token string, next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// role says which token the request carries: "admin", "viewer" or "".
+func (s *Server) role(r *http.Request) string {
+	got := []byte(r.Header.Get("Authorization"))
+	switch {
+	case s.AdminToken != "" && subtle.ConstantTimeCompare(got, []byte("Bearer "+s.AdminToken)) == 1:
+		return "admin"
+	case s.ViewerToken != "" && subtle.ConstantTimeCompare(got, []byte("Bearer "+s.ViewerToken)) == 1:
+		return "viewer"
+	}
+	return ""
+}
+
+// adminAuth lets the admin token through, and the viewer token on read routes only.
+func (s *Server) adminAuth(read bool, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch s.role(r) {
+		case "admin":
+			next.ServeHTTP(w, r)
+		case "viewer":
+			if !read {
+				writeError(w, http.StatusForbidden, "read-only token")
+				return
+			}
+			next.ServeHTTP(w, r)
+		default:
+			writeError(w, http.StatusUnauthorized, "missing or wrong bearer token")
+		}
+	})
+}
+
+func (s *Server) whoami(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"role": s.role(r)})
 }
 
 type hackathonIn struct {
@@ -435,6 +472,9 @@ func (s *Server) Validate() error {
 	}
 	if s.AdminToken == s.GatewayToken {
 		return errors.New("api: admin and gateway tokens must differ")
+	}
+	if s.ViewerToken != "" && (len(s.ViewerToken) < 16 || s.ViewerToken == s.AdminToken || s.ViewerToken == s.GatewayToken) {
+		return errors.New("api: the viewer token must be at least 16 characters and differ from the others")
 	}
 	if s.C == nil || s.Log == nil {
 		return fmt.Errorf("api: controller and logger are required")

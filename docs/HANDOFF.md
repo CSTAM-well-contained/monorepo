@@ -279,7 +279,10 @@ the API (gateway `alive`/`in_sync`, `alerts`), never in the browser. Slices:
    tiles, IP grid, timelines), Teams (spin-up, extend, teardown), Traffic (live), IP pool,
    Config (push, rollback, demo presets), Events. Docs: `docs/official/dashboard.md` with
    screenshots. Checked in a real browser (notebook L13). Proof: `go test ./web/`.
-6. TODO (next): read-only viewer token for the jury (GET only); record the demo video with the
+6. DONE: read-only viewer token `CSTAM_VIEWER_TOKEN` (admin GETs only, 403 on writes,
+   `GET /v1/whoami`; the dashboard hides its controls and shows "read-only"). `demo.sh up`
+   writes `viewer.token` next to `admin.token`.
+7. TODO (next): record the demo video with the
    dashboard (script in `docs/official/dashboard.md` order: overview, spin-up, traffic, planned
    failover, config broken -> rolled back -> manual rollback, teardown and IP grid); TLS or an
    SSH tunnel for the dashboard on FelCloud (cpd is plain HTTP).

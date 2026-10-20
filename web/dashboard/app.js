@@ -206,7 +206,7 @@ function gatewayCard(g) {
       h("dt", {}, "traffic"), h("dd", {}, t ? `${t.rps.toFixed(1)} req/s, ${t.errors_5xx_10s} 5xx in 10 s` : "no lines yet"),
       h("dt", {}, "VRRP since"), h("dd", {}, g.vrrp_since ? ago(g.vrrp_since) : "-"),
       h("dt", {}, "last report"), h("dd", {}, ago(g.last_seen))),
-    h("div", { class: "row" }, btn));
+    h("div", { class: "row act" }, btn));
 }
 
 function failover(btn, name, master) {
@@ -309,7 +309,7 @@ function renderTeams() {
     h("td", { class: "mono" }, t.ip || "-"), h("td", {}, t.slot || "-"), h("td", {}, t.app_port),
     h("td", {}, badge(t.state, teamBadge[t.state] || "idle"), t.error ? h("div", { class: "small error" }, t.error) : null),
     h("td", {}, t.state === "ready" || t.state === "provisioning" ? left(t.lease_expires_at) : "-"),
-    h("td", {},
+    h("td", { class: "act" },
       h("button", { class: "small", disabled: t.state !== "ready", onclick: (e) =>
         act(e.target, "Renew", async () => { await api("POST", `/v1/teams/${t.id}/renew`); return `${t.name}: lease extended`; }) }, "Extend"),
       " ",
@@ -358,7 +358,7 @@ function renderConfig() {
     h("td", {}, clock(v.created_at)), h("td", {}, v.rate_limit),
     h("td", { class: "mono wrap small" }, v.extra.length ? v.extra.join("\n") : "-"),
     h("td", { class: "wrap" }, v.reason || "-"),
-    h("td", {}, h("button", { class: "small", onclick: (e) =>
+    h("td", { class: "act" }, h("button", { class: "small", onclick: (e) =>
       confirmAction(`Roll back to ${v.version}?`, `A new version is created with the content of ${v.version}; both gateways reload to it (check, hitless reload, verify).`)
         .then((ok) => ok && act(e.target, "Rollback", async () => { const n = await api("POST", `/v1/config/${v.version}/rollback`); return `${n.version} pushed (${n.reason})`; })) },
       "Roll back to this"))));
@@ -446,6 +446,12 @@ function start() {
   $("app").hidden = false;
   $("login-token").value = "";
   clearInterval(timer);
+  // A viewer token sees everything and changes nothing: hide the controls (the API refuses
+  // them anyway with 403).
+  api("GET", "/v1/whoami").then((w) => {
+    document.body.classList.toggle("viewer", w.role === "viewer");
+    $("role").hidden = w.role !== "viewer";
+  }).catch(() => {});
   poll(true);
   timer = setInterval(() => { if (!document.hidden) poll(false); }, 1000);
 }

@@ -257,9 +257,63 @@ func TestValidateTokens(t *testing.T) {
 	for _, s := range []Server{
 		{C: &stub{}, AdminToken: "short", GatewayToken: gwTok, Log: log},
 		{C: &stub{}, AdminToken: adminTok, GatewayToken: adminTok, Log: log},
+		{C: &stub{}, AdminToken: adminTok, GatewayToken: gwTok, ViewerToken: adminTok, Log: log},
+		{C: &stub{}, AdminToken: adminTok, GatewayToken: gwTok, ViewerToken: "short", Log: log},
 	} {
 		if err := s.Validate(); err == nil {
 			t.Fatalf("accepted %+v", s)
 		}
+	}
+}
+
+const viewerTok = "viewer-token-0123456789"
+
+func TestViewerToken(t *testing.T) {
+	srv := &Server{C: &stub{}, AdminToken: adminTok, GatewayToken: gwTok, ViewerToken: viewerTok,
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if err := srv.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Handler()
+	cases := []struct {
+		method, path, token, body string
+		code                      int
+	}{
+		{"GET", "/v1/status", viewerTok, "", 200},
+		{"GET", "/v1/traffic", viewerTok, "", 200},
+		{"GET", "/v1/config", viewerTok, "", 200},
+		{"POST", "/v1/hackathons/h1/teams", viewerTok, `{"name":"t1"}`, 403},
+		{"DELETE", "/v1/teams/7", viewerTok, "", 403},
+		{"POST", "/v1/gateways/gw1/failover", viewerTok, "", 403},
+		{"POST", "/v1/config/c1/rollback", viewerTok, "", 403},
+		{"GET", "/v1/gateways/gw1/desired", viewerTok, "", 401},
+		{"POST", "/v1/gateways/gw1/ack", viewerTok, `{"generation":1}`, 401},
+		{"DELETE", "/v1/teams/7", adminTok, "", 202},
+	}
+	for _, tc := range cases {
+		var rd io.Reader
+		if tc.body != "" {
+			rd = strings.NewReader(tc.body)
+		}
+		req := httptest.NewRequest(tc.method, tc.path, rd)
+		req.Header.Set("Authorization", "Bearer "+tc.token)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != tc.code {
+			t.Errorf("%s %s with %s: %d, want %d", tc.method, tc.path, tc.token[:6], w.Code, tc.code)
+		}
+	}
+	for tok, want := range map[string]string{adminTok: "admin", viewerTok: "viewer"} {
+		req := httptest.NewRequest("GET", "/v1/whoami", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if !strings.Contains(w.Body.String(), `"role":"`+want+`"`) {
+			t.Errorf("whoami with %s: %s", want, w.Body)
+		}
+	}
+	// no viewer token configured: a viewer-looking token is just wrong
+	if w := do(t, &stub{}, "GET", "/v1/status", viewerTok, ""); w.Code != 401 {
+		t.Fatalf("viewer token without configuration: %d", w.Code)
 	}
 }

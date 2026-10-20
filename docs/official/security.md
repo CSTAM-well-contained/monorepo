@@ -92,6 +92,8 @@ MAC. Only the gateway ports carry the VIP in `allowed_address_pairs`, so no team
 |---|---|
 | Authentication | `Authorization: Bearer`; two tokens (admin, gateway), at least 16 characters, must differ (`Server.Validate`, `TestValidateTokens`); compared in constant time (`crypto/subtle`) |
 | Authorization | each route declares its token (`routes()`); a gateway token cannot call admin routes and vice versa (`TestRoutes`); the OpenAPI spec is checked against the routes (`TestOpenAPIListsEveryRoute`) |
+| Read-only role | optional viewer token: admin `GET` routes only, 403 on every write, 401 on gateway routes (`TestViewerToken`); for the jury's laptops during the pitch |
+| Dashboard | served by cpd with a strict CSP (`script-src 'self'`, no framing), data inserted as text only, checked by `go test ./web/` (no `innerHTML`/`eval`, no inline script); see dashboard.md |
 | Request limits | body at most 64 KiB, `application/json` only (415), unknown JSON fields rejected |
 | Server timeouts | read header 5 s, read 15 s, write 40 s (long-poll 25 s + margin), idle 90 s |
 | Errors | client errors say what is wrong; internal errors return `internal error` and are logged only on the server |

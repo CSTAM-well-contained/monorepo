@@ -12,10 +12,11 @@
   <form id="login-form" class="card login-card">
     <h1>CSTAM Control</h1>
     <p class="muted">Resilient IP Optimizer: sandboxes, HA gateways, IPAM.</p>
-    <label>Admin token
+    <label>Token
       <input id="login-token" type="password" autocomplete="current-password" required minlength="16">
     </label>
-    <p class="muted small">The token stays in this browser tab (session storage) and is sent only to this server.</p>
+    <p class="muted small">An admin token can change things; a viewer token only watches.
+      The token stays in this browser tab (session storage) and is sent only to this server.</p>
     <button type="submit" class="primary">Open the dashboard</button>
     <p id="login-error" class="error" role="alert"></p>
   </form>
@@ -33,6 +34,7 @@
       <button data-tab="events">Events</button>
     </nav>
     <div class="right">
+      <span id="role" class="badge b-warn" hidden>read-only</span>
       <span id="live" class="live off" role="status">connecting</span>
       <button id="logout" class="ghost">Log out</button>
     </div>
@@ -42,7 +44,7 @@
     <section id="tab-overview" class="tab"></section>
     <section id="tab-teams" class="tab" hidden>
       <div class="row">
-        <form id="spinup" class="card grow">
+        <form id="spinup" class="card grow act">
           <h2>Spin up a team sandbox</h2>
           <div class="fields">
             <label>Hackathon <select id="spinup-hack" required></select></label>
@@ -52,7 +54,7 @@
           </div>
           <button type="submit" class="primary">Spin up</button>
         </form>
-        <details class="card">
+        <details class="card act">
           <summary><h2>New hackathon</h2></summary>
           <form id="newhack" class="fields">
             <label>Name <input id="newhack-name" required pattern="[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?" placeholder="cstam3"></label>
@@ -75,7 +77,7 @@
     </section>
     <section id="tab-ipam" class="tab" hidden></section>
     <section id="tab-config" class="tab" hidden>
-      <form id="pushcfg" class="card">
+      <form id="pushcfg" class="card act">
         <h2>Push a config version</h2>
         <p class="muted small">Each gateway checks it with <code>haproxy -c</code>, reloads without dropping connections, verifies it serves, and rolls back by itself if not.</p>
         <div class="fields">
