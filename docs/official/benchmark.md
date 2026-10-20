@@ -5,8 +5,14 @@ lab notebook entry with the details ([experiments.md](../notebook/experiments.md
 
 **Where:** a laptop (WSL2 Debian 13, Docker 29) running real HAProxy 3.2, keepalived 2.3,
 PostgreSQL 18 and our binaries, on a Docker bridge with the FelCloud IP plan (10.20.0.0/24); and
-FelCloud for the VM driver (B4). The full FelCloud run is pending floating IPs: on OVN, failover
-adds the virtual-port rebinding time (expected 10-300 ms), to be measured there.
+**FelCloud** for the VM driver (B4) and network isolation (B9). FelCloud has no free public IP
+yet (`ExternalIpAddressExhausted`, last try 2026-10-20), so the gateways cannot be reached from
+the internet there; on OVN, failover will add the virtual-port rebinding time (expected
+10-300 ms), to be measured once the public IPs exist.
+
+**Brief checklist (Phase 2 deliverable):** provisioning latency B4, B5 · gateway failover time
+B6, B8 · IP recycling speed B7 · load test metrics B8 · isolation B8, B9 · reload and rollback B1.
+Phase 2 validation summary: [phase2.md](phase2.md).
 
 ## Summary
 
@@ -18,6 +24,8 @@ adds the virtual-port rebinding time (expected 10-300 ms), to be measured there.
 | B3 | 1000 parallel allocations, 128 slots | 128 allocated, 872 clean `pool exhausted`, **no IP or slot given twice** | no conflicts |
 | B4 | FelCloud VM sandbox create / delete | **23 s** to ACTIVE, **14 s** to delete server + port | |
 | B5 | 50 simultaneous registrations | **50/50 routed, p50 3.4 s, p95 4.9 s**, 0 errors, 50 distinct IPs and slots | 10+ teams, error-free |
+| B6 | Planned failover from the API / dashboard | VIP on the peer **0.30-0.31 s** after the call, 1 probe of ~175 lost (20 ms probes) | manual failover |
+| B1 | Broken config pushed through the API, both gateways | valid-but-broken version rolled back in **139 ms** (0.80 s total), syntax error rejected in **23 ms**, **0 failed requests** during the sequence | auto-rollback |
 | B6 | Gateway failover (takeover through the VIP) | **1.3-1.9 s** frozen master, 0.2 s clean stop; HAProxy killed: **0.45-0.61 s** (systemd restarts it, no failover needed) | seamless |
 | B7 | Teardown of 50 teams | sandboxes and routes gone in **7 s**; IPs back in the pool at **63 s** (60 s quarantine by design) | immediate release |
 | B8 | HTTP load through the VIP, 20 teams | **3,000 req/s, 0 errors, 0 misrouted, p99 1.2-1.6 ms** (new connection per request: p99 4.5 ms) | load test metrics |
@@ -48,6 +56,17 @@ deploy/dev/demo.sh reload                 # B1
   reload 175 ms, verify timeout 501 ms, **rollback 142 ms**, total 0.97 s. (L1: rollback 73 ms,
   total 0.72 s.) A config with a syntax error never reaches HAProxy.
 
+Through cpd on the running gateways (`deploy/dev/demo.sh config`, notebook L11), each gateway:
+
+| Version | Change | Outcome | check | reload | verify | rollback | total |
+|---|---|---|---|---|---|---|---|
+| c1 | rate limit 1000 | applied | 45 ms | 118 ms | 2 ms | - | 165 ms |
+| c2 | valid syntax, health check broken | rolled back | 43 ms | 119 ms | 500 ms (timeout) | **139 ms** | 0.80 s |
+| c3 | unknown keyword | rejected by `haproxy -c` | 23 ms | - | - | - | 23 ms |
+| c4 | manual rollback to c1 (new version) | applied | 39 ms | 117 ms | 2 ms | - | 158 ms |
+
+A team was requested every 20 ms through the VIP during the whole sequence: 316 x 200, 0 errors.
+
 ## B2 - Route propagation
 `go test -tags integration -run TestAgentDrivesRealHAProxy -v ./internal/gw/agent/` (L5).
 cpd publishes generation 2 with a new team; the team answers through HAProxy 24 ms later.
@@ -73,6 +92,8 @@ and IP) answers through the VIP.
 | 20 | 4 | 0.32 s | 20/20 | 2.37 s | 4.02 s | 4.16 s | 20 / 20 |
 | 20 | 16 | 0.40 s | 20/20 | 2.11 s | 2.42 s | 3.55 s | 20 / 20 |
 | 50 | 16 | 0.51 s | 50/50 | 3.39 s | 4.93 s | 5.10 s | 50 / 50 |
+| 20 (rerun 10-20, L15) | 4 | 0.25 s | 20/20 | 1.88 s | 3.08 s | 3.09 s | 20 / 20 |
+| 50 (rerun, 24 teams already up) | 4 | 0.33 s | 50/50 | 3.95 s | 6.97 s | 7.01 s | 50 / 50 |
 
 The API answers every registration in under 0.6 s (IP and slot are allocated in that call); the
 rest is sandbox creation, bounded by `-workers`. Route propagation itself is milliseconds (B2).
@@ -90,6 +111,24 @@ rest is sandbox creation, bounded by `-workers`. Route propagation itself is mil
 
 On the VMs, `vrrp_track_process` should bring the HAProxy-killed case under 1 s (cannot be measured
 in containers).
+
+Planned failover (`POST /v1/gateways/{gw}/failover`, the dashboard button; `demo.sh failover
+planned`, notebook L10): the agent writes keepalived's force-backup file, the MASTER goes to FAULT
+and sends a priority-0 advert. Twice: peer serving **304 ms and 310 ms** after the API call, 1 of
+~175 probes lost each time. Refused (409) when the peer is not alive, in sync and healthy.
+
+## B7 - Teardown and IP recycling
+`deploy/dev/demo.sh teardown` after B5 (L6, L7). 50 teams: routes removed at once, all sandboxes
+deleted in 7 s; IPs stay in quarantine until both gateways acked the route removal and 60 s
+passed, then all 50 are free at 63 s. The next hackathon received 10.20.0.32 again.
+The 60 s quarantine is a deliberate safety margin (`ipam.Quarantine`, for ARP caches and
+keep-alive connections); the gateway-ack condition alone is met within milliseconds.
+With `cpd -quarantine 10s` (video) the 20 IPs of a hackathon were free 11 s after its end.
+
+Rerun 2026-10-20 (L15): 50 teams deleted in 6.9 s, IPs free at 63.0 s, 0 routes left, a deleted
+team's subdomain answers 404. **Lease expiry** with nobody acting (hackathon with a 30 s lease, 3
+teams): at the expiry second the routes were removed (200 -> 404) and the IPs quarantined; the
+teams were deleted 1 s later.
 
 ## B8 - HTTP load test through the gateways
 `deploy/dev/demo.sh load [SECONDS] [WORKERS] [pause|kill]`, which runs `cstamctl load` (notebook L9).
@@ -134,10 +173,3 @@ starts from zero on the new MASTER (security.md, known gaps).
 Lab VMs on the real Neutron, results on their noVNC screen (phase2.md, L14). From a team port
 every internal target times out (dropped), including the control plane's SSH after the
 `cstam-team` egress fix; from a gateway-group port the team page answers.
-
-## B7 - Teardown and IP recycling
-`deploy/dev/demo.sh teardown` after B5 (L6, L7). 50 teams: routes removed at once, all sandboxes
-deleted in 7 s; IPs stay in quarantine until both gateways acked the route removal and 60 s
-passed, then all 50 are free at 63 s. The next hackathon received 10.20.0.32 again.
-The 60 s quarantine is a deliberate safety margin (`ipam.Quarantine`, for ARP caches and
-keep-alive connections); the gateway-ack condition alone is met within milliseconds.

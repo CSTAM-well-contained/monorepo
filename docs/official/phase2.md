@@ -70,8 +70,17 @@ OPEN = connected, REFUSED = reachable but nothing listens, FILTERED = dropped by
   plan, unit-tested). Replies to the gateways need no rule (stateful). Re-measured: everything
   internal FILTERED from a team, the gateway still reaches the team page.
 
+Team VM A after the fix (FelCloud noVNC console): every internal target dropped.
+
 ![team VM after the fix](img/iso-team-after.png)
+
+Gateway-like VM C: the team page (10.20.0.193:80) answers, management ports stay closed.
+
 ![gateway-like VM](img/iso-gateway.png)
+
+Team VM A before the fix: the control plane's SSH (10.20.0.5:22) was reachable.
+
+![team VM before the fix](img/iso-team-before.png)
 
 Also verified on real HAProxy (`go test -tags integration -run TestGatewayGuards ./internal/gw/applier/`):
 `/__gw/*` (health and version) is a silent 404 from outside addresses, a flooded team gets 429

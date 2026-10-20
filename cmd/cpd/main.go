@@ -43,6 +43,7 @@ func main() {
 	listen := flag.String("listen", ":"+strconv.Itoa(config.CPDPort), "address of the REST API")
 	workers := flag.Int("workers", 4, "sandbox operations in flight")
 	every := flag.Duration("reconcile", 2*time.Second, "reconciler interval")
+	quarantine := flag.Duration("quarantine", 60*time.Second, "minimum time between an IP release and its reuse (1s to 1h)")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(version)
@@ -51,13 +52,16 @@ func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("app", "cpd", "version", version)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, log, *listen, *workers, *every); err != nil {
+	if err := run(ctx, log, *listen, *workers, *every, *quarantine); err != nil {
 		log.Error("cpd stopped", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, log *slog.Logger, listen string, workers int, every time.Duration) error {
+func run(ctx context.Context, log *slog.Logger, listen string, workers int, every, quarantine time.Duration) error {
+	if quarantine < time.Second || quarantine > time.Hour {
+		return fmt.Errorf("-quarantine %s: want 1s to 1h", quarantine)
+	}
 	dsn := os.Getenv("CSTAM_DB_DSN")
 	if dsn == "" {
 		return errors.New("CSTAM_DB_DSN is not set")
@@ -71,6 +75,7 @@ func run(ctx context.Context, log *slog.Logger, listen string, workers int, ever
 		return err
 	}
 	m := ipam.New()
+	m.Quarantine = quarantine
 	if err := m.Seed(ctx, pool); err != nil {
 		return err
 	}

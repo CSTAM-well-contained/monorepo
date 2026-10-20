@@ -5,6 +5,7 @@
 # IPAM address. Needs Docker, curl, jq and `make build`.
 #
 #   demo.sh up            start everything (CPD_WORKERS=n: sandbox operations in flight, default 4;
+#                         QUARANTINE=10s: shorter IP quarantine for a video, default 60s;
 #                         GW_MODE=systemd: gateways run systemd with the units of deploy/systemd)
 #   demo.sh teams [N]     create hackathon $HACK (default demo) with N teams (default 3), curl each via the VIP
 #   demo.sh stress [N]    N registrations at once (default 20): latency p50/p95, distinct IPs
@@ -100,7 +101,7 @@ up() {
     ( set -a; . "$STATE/gw.env"; set +a
       CSTAM_DB_DSN=postgres://postgres:demo@127.0.0.1:55433/postgres CSTAM_DRIVER=docker \
       CSTAM_DOCKER_NETWORK=$DNET CSTAM_ADMIN_TOKEN=$(cat "$STATE/admin.token") CSTAM_VIEWER_TOKEN=$(cat "$STATE/viewer.token") \
-      exec setsid ./bin/cpd -listen "$ROUTER:8443" -workers "${CPD_WORKERS:-4}" ) >"$STATE/cpd.log" 2>&1 &
+      exec setsid ./bin/cpd -listen "${CPD_LISTEN:-0.0.0.0:8443}" -workers "${CPD_WORKERS:-4}" -quarantine "${QUARANTINE:-60s}" ) >"$STATE/cpd.log" 2>&1 &
     echo $! >"$STATE/cpd.pid"
     for _ in $(seq 40); do curl -sf "$CPD/healthz" >/dev/null && break; sleep 0.25; done
     curl -sf "$CPD/healthz" >/dev/null || { tail -5 "$STATE/cpd.log"; die "cpd did not start"; }
@@ -128,7 +129,7 @@ up() {
   echo "== waiting for the VIP $VIP_IP"
   for _ in $(seq 60); do [ -n "$(master)" ] && break; sleep 0.5; done
   [ -n "$(master)" ] || die "nobody answers on the VIP (docker logs cstam-demo-gw1)"
-  echo "VIP served by $(master). API and dashboard: $CPD/, tokens in $STATE/admin.token and viewer.token (read-only)"
+  echo "VIP served by $(master). API and dashboard: $CPD/ (from Windows: http://localhost:8443/), tokens in $STATE/admin.token and viewer.token (read-only)"
 }
 
 teams() {
@@ -310,7 +311,9 @@ teardown() {
     local st; st=$(api GET /v1/status)
     line="teams $(jq -c .teams <<<"$st")  ip_pool $(jq -c .ip_pool <<<"$st")  containers $(docker ps -aq --filter label=cstam.sandbox | wc -l)"
     [ "$line" != "$last" ] && printf '%6s ms  %s\n' "$(ms "$t" "$(now)")" "$line" && last=$line
-    [ "$(jq '.ip_pool.quarantine // 0' <<<"$st")" = 0 ] && [ "$(jq '[.teams[]] | add // 0' <<<"$st")" = "$(jq '.teams.deleted // 0' <<<"$st")" ] && break
+    # done when this hackathon has no team left and no IP waits in quarantine
+    # (other hackathons may keep running)
+    [ "$(jq '.ip_pool.quarantine // 0' <<<"$st")" = 0 ] && [ "$(api GET "/v1/hackathons/$HACK/teams" | jq length)" = 0 ] && break
     sleep 0.5
   done
 }
@@ -333,5 +336,5 @@ down() {
 
 case "${1:-}" in
   up|teams|stress|failover|load|reload|config|teardown|status|down) "$@" ;;
-  *) sed -n "2,24p" "$0"; exit 2 ;;
+  *) sed -n "2,25p" "$0"; exit 2 ;;
 esac

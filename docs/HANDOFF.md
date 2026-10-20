@@ -285,7 +285,7 @@ the API (gateway `alive`/`in_sync`, `alerts`), never in the browser. Slices:
 6. DONE: read-only viewer token `CSTAM_VIEWER_TOKEN` (admin GETs only, 403 on writes,
    `GET /v1/whoami`; the dashboard hides its controls and shows "read-only"). `demo.sh up`
    writes `viewer.token` next to `admin.token`.
-7. TODO (next): record the demo video with the
+7. TODO (human): record the demo video (Task L, `docs/official/video-script.md`) with the
    dashboard (script in `docs/official/dashboard.md` order: overview, spin-up, traffic, planned
    failover, config broken -> rolled back -> manual rollback, teardown and IP grid); TLS or an
    SSH tunnel for the dashboard on FelCloud (cpd is plain HTTP).
@@ -300,6 +300,21 @@ Report for the jury: `docs/official/phase2.md` (requirements -> command -> measu
   (017ad11b-...): use it for `CSTAM_TEAM_SG_ID` in cpd.env.
 - Pulumi note: while the floating IPs fail, `pulumi up` stops at them. Use
   `pulumi up --exclude "**FloatingIp**" --exclude "**Router::cstam-router"` for other changes.
+
+### Task L: Phase 2 submission material: DONE (2026-10-20), video recording left to a human
+The submission asks for: repository link + FelCloud mentors as contributors (**Emna does it**),
+benchmark report, API and security documentation, a video of max. 3 minutes uploaded with
+SwissTransfer, 30-day link (**Emna does the upload**).
+- PDFs in `docs/official/pdf/` (also copied to `Downloads\to-emna\phase2-submission\` on Emna's PC):
+  `CSTAM-benchmark-report.pdf` (benchmark.md + phase2.md), `CSTAM-api-security.pdf` (api.md +
+  security.md + architecture.md). Made by rendering the markdown with GitHub (`gh api markdown`)
+  and printing with headless Edge; regenerate them after changing those docs.
+- Video: `deploy/dev/video.sh` plays the whole Phase 2 demo with captions (about 70 s of action,
+  Enter between steps); storyboard and narration in `docs/official/video-script.md`. Start the
+  stack with `QUARANTINE=10s GW_MODE=systemd deploy/dev/demo.sh up`; dashboard from Windows at
+  `http://localhost:8443/` (cpd now listens on 0.0.0.0 in the demo).
+- Fixed on the way: `cpd -quarantine` flag (default 60 s); `demo.sh teardown` waited for every
+  team of every hackathon (2 minutes of idle loop when other hackathons ran), now only its own.
 
 ## 6. Good to know
 - Guide errata found by testing, already fixed in ch. 12: keepalived 2.3 refuses `delay 0` in

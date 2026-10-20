@@ -10,6 +10,8 @@ working notes are elsewhere: [HANDOFF](../HANDOFF.md), [lab notebook](../noteboo
 | [api.md](api.md) | REST API reference, client integration guide, OpenStack API integration |
 | [openapi.yaml](openapi.yaml) | OpenAPI 3.1 spec of the REST API (checked against the code by a test) |
 | [security.md](security.md) | Threat model, trust boundaries, firewall table, gateway and API protections, secrets, verification, known gaps |
+| [pdf/](pdf/) | Phase 2 submission PDFs: benchmark report (benchmark + phase2), API integration and security architecture (api + security + architecture) |
+| [video-script.md](video-script.md) | Phase 2 video: preparation, recording, 3-minute storyboard (`deploy/dev/video.sh`) |
 | [phase2.md](phase2.md) | Phase 2 validation: stress, teardown, isolation measured on FelCloud |
 | [dashboard.md](dashboard.md) | Admin dashboard: pages, manual controls, security |
 | [benchmark.md](benchmark.md) | Measured results: reload, rollback, failover (also under load), provisioning, stress test, HTTP load test, IP recycling |
