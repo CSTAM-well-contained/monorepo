@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CSTAM video stage</title>
+<!-- One video frame (1920x1080): the terminal of deploy/dev/video.sh on the left, the live
+     dashboard (or FelCloud screenshots) on the right, the narration as subtitles. Filled by
+     make-video.ps1 through update(); local file, no network. -->
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: #0d1117; color: #e6edf3;
+    font-family: "Segoe UI", Arial, sans-serif; }
+  header { height: 70px; display: flex; align-items: center; gap: 24px; padding: 0 28px; background: #161b22; border-bottom: 1px solid #30363d; }
+  header .brand { font-size: 26px; font-weight: 700; }
+  header .phase { font-size: 18px; color: #8b949e; }
+  header .scene { margin-left: auto; font-size: 22px; font-weight: 600; color: #fff; background: #2357d9; padding: 6px 16px; border-radius: 8px; }
+  main { display: flex; gap: 16px; padding: 16px; height: 860px; }
+  .pane { background: #010409; border: 1px solid #30363d; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+  .pane .label { font-size: 15px; color: #8b949e; padding: 6px 12px; border-bottom: 1px solid #30363d; background: #161b22; }
+  #term-pane { width: 820px; }
+  #term { flex: 1; margin: 0; padding: 10px 12px; font: 14.5px/1.38 Consolas, "Cascadia Mono", monospace; white-space: pre-wrap;
+    word-break: break-all; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
+  #right-pane { flex: 1; }
+  #right { flex: 1; display: flex; align-items: flex-start; justify-content: center; background: #0d1117; overflow: hidden; }
+  #right img.dash { width: 100%; }
+  #right .shots { padding: 18px; display: flex; flex-direction: column; gap: 14px; width: 100%; }
+  #right .shots p { margin: 0; font-size: 17px; color: #c9d1d9; }
+  #right .shots img { width: 100%; border: 1px solid #30363d; border-radius: 6px; }
+  footer { position: absolute; left: 0; right: 0; bottom: 0; height: 134px; display: flex; align-items: center; justify-content: center;
+    padding: 0 60px; background: #161b22; border-top: 1px solid #30363d; }
+  #sub { font-size: 25px; line-height: 1.35; text-align: center; color: #fff; }
+  .b { color: #fff; background: #2357d9; font-weight: 700; }
+  .c { color: #58c4dc; font-weight: 700; }
+  .d { color: #6e7681; }
+</style>
+</head>
+<body>
+<header><span class="brand">CSTAM Resilient IP Optimizer</span><span class="phase">FelCloud challenge - Phase 2: integration and testing</span><span class="scene" id="scene"></span></header>
+<main>
+  <section class="pane" id="term-pane"><div class="label">terminal: deploy/dev/video.sh (real platform: cpd, 2 HAProxy + keepalived gateways, PostgreSQL)</div><pre id="term"></pre></section>
+  <section class="pane" id="right-pane"><div class="label" id="right-label">admin dashboard (live)</div><div id="right"></div></section>
+</main>
+<footer><div id="sub"></div></footer>
+<script>
+// ANSI (only what video.sh prints) -> spans. Text goes in as text nodes, never as HTML.
+function ansi(text) {
+  const out = document.createDocumentFragment();
+  let cls = "";
+  for (const part of text.split(/(\x1b\[[0-9;]*m)/)) {
+    const m = part.match(/^\x1b\[([0-9;]*)m$/);
+    if (m) {
+      const codes = m[1].split(";");
+      cls = codes.includes("44") ? "b" : codes.includes("36") ? "c" : codes.includes("2") ? "d" : "";
+      continue;
+    }
+    if (!part) continue;
+    const s = document.createElement("span");
+    if (cls) s.className = cls;
+    s.textContent = part;
+    out.append(s);
+  }
+  return out;
+}
+function update(st) {
+  document.getElementById("scene").textContent = st.scene || "";
+  document.getElementById("sub").textContent = st.sub || "";
+  // keep what follows the last carriage return of each line (progress counters)
+  const lines = (st.term || "").split("\n").map((l) => l.split("\r").filter(Boolean).pop() || "").slice(-st.rows);
+  document.getElementById("term").replaceChildren(ansi(lines.join("\n")));
+  const right = document.getElementById("right");
+  document.getElementById("right-label").textContent = st.label || "";
+  if (st.shots) {
+    const box = document.createElement("div");
+    box.className = "shots";
+    for (const s of st.shots) {
+      const p = document.createElement("p"); p.textContent = s.caption;
+      const img = document.createElement("img"); img.src = s.src;
+      box.append(p, img);
+    }
+    right.replaceChildren(box);
+  } else if (st.dash) {
+    const img = document.createElement("img"); img.className = "dash"; img.src = st.dash;
+    right.replaceChildren(img);
+  }
+  // the frame is captured when this resolves: every image decoded
+  return Promise.all([...right.querySelectorAll("img")].map((i) => i.decode().catch(() => null))).then(() => true);
+}
+</script>
+</body>
+</html>

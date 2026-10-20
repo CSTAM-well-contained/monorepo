@@ -27,8 +27,17 @@ api() { # api METHOD PATH [JSON]
 }
 banner() { printf '\n\033[1;97;44m  %s  \033[0m\n' "$*"; }
 say() { printf '\033[1;36m> %s\033[0m\n' "$*"; }
+# next waits before the next step: Enter, a fixed pause (VIDEO_AUTO=1), or, for an automatic
+# recording (deploy/video/), a gate: the step number is written to $VIDEO_MARK when this step's
+# work is done, and the script goes on when the recorder writes a number >= it to $VIDEO_GATE.
+step_no=0
 next() {
-  if [ "${VIDEO_AUTO:-}" = 1 ]; then sleep "${1:-3}"; else read -rsp $'\033[2m  [Enter]\033[0m' _; echo; fi
+  step_no=$((step_no + 1))
+  if [ -n "${VIDEO_GATE:-}" ]; then
+    echo "$step_no" >"$VIDEO_MARK"
+    while [ "$(cat "$VIDEO_GATE" 2>/dev/null || echo 0)" -lt "$step_no" ]; do sleep 0.2; done
+  elif [ "${VIDEO_AUTO:-}" = 1 ]; then sleep "${1:-3}"
+  else read -rsp $'\033[2m  [Enter]\033[0m' _; echo; fi
 }
 code() { curl -s -o /dev/null -m 2 -w '%{http_code}' -H "Host: $1" "http://$VIP_IP${2:-/}"; }
 quarantine=$(tr '\0' ' ' </proc/"$(cat "$STATE/cpd.pid")"/cmdline 2>/dev/null | sed -n 's/.*-quarantine \([^ ]*\).*/\1/p')
@@ -100,3 +109,4 @@ cat <<'EOF'
   isolation      flooded team refused, others 0 errors; sandboxes isolated on FelCloud
 EOF
 banner "github.com/CSTAM-well-contained/monorepo  -  docs/official/"
+[ -z "${VIDEO_GATE:-}" ] || echo $((step_no + 1)) >"$VIDEO_MARK"   # done (automatic recording)

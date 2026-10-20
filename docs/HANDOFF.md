@@ -285,7 +285,7 @@ the API (gateway `alive`/`in_sync`, `alerts`), never in the browser. Slices:
 6. DONE: read-only viewer token `CSTAM_VIEWER_TOKEN` (admin GETs only, 403 on writes,
    `GET /v1/whoami`; the dashboard hides its controls and shows "read-only"). `demo.sh up`
    writes `viewer.token` next to `admin.token`.
-7. TODO (human): record the demo video (Task L, `docs/official/video-script.md`) with the
+7. DONE: Phase 2 video (Task L). Left to Emna: SwissTransfer upload, mentors as contributors. with the
    dashboard (script in `docs/official/dashboard.md` order: overview, spin-up, traffic, planned
    failover, config broken -> rolled back -> manual rollback, teardown and IP grid); TLS or an
    SSH tunnel for the dashboard on FelCloud (cpd is plain HTTP).
@@ -309,7 +309,10 @@ SwissTransfer, 30-day link (**Emna does the upload**).
   `CSTAM-benchmark-report.pdf` (benchmark.md + phase2.md), `CSTAM-api-security.pdf` (api.md +
   security.md + architecture.md). Made by rendering the markdown with GitHub (`gh api markdown`)
   and printing with headless Edge; regenerate them after changing those docs.
-- Video: `deploy/dev/video.sh` plays the whole Phase 2 demo with captions (about 70 s of action,
+- **Video made automatically** (2:31, 1080p, voice + subtitles): `deploy/video/make-video.ps1`
+  (headless Edge frames + Windows text-to-speech + Windows.Media.Editing encoder, no download).
+  File given to Emna: `Downloads\to-emna\phase2-submission\CSTAM-phase2-demo.mp4`.
+- Video by hand: `deploy/dev/video.sh` plays the whole Phase 2 demo with captions (about 70 s of action,
   Enter between steps); storyboard and narration in `docs/official/video-script.md`. Start the
   stack with `QUARANTINE=10s GW_MODE=systemd deploy/dev/demo.sh up`; dashboard from Windows at
   `http://localhost:8443/` (cpd now listens on 0.0.0.0 in the demo).
