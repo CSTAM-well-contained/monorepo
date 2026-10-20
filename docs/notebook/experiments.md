@@ -218,6 +218,24 @@ Self-service options checked (none frees a 197.5.133.x address):
   replaces it by rename (it owns `/run/cstam`) and keepalived picks the new file up.
 - Cleanup done: no (demo stack kept running for the dashboard work).
 
+### L11 - Config versions and manual rollback through cpd  (2026-10-20, Emna's PC, Docker)
+- Setup: `GW_MODE=systemd demo.sh up`, 2 teams, `demo.sh config` (probe on team01 every 20 ms).
+- Per gateway, from the `haproxy apply` log lines (both gateways within a few ms of each other):
+
+  | Version | What | Outcome | check | reload | verify | rollback | total |
+  |---|---|---|---|---|---|---|---|
+  | c1 | rate limit 1000 | applied | 45 ms | 118 ms | 2 ms | - | 165 ms |
+  | c2 | healthz answers 500 (valid syntax) | rolled_back | 43 ms | 119 ms | 500 ms (timeout) | **139 ms** | **0.80 s** |
+  | c3 | unknown keyword | rejected | 23 ms | - | - | - | 23 ms |
+  | c4 | rollback to c1 (copy) | applied | 39 ms | 117 ms | 2 ms | - | 158 ms |
+- Team traffic during the whole sequence: **316 x 200, 0 errors**.
+- Events: `config.created`, `config.applied/rolled_back/rejected` per gateway with the error,
+  `config.rollback`; `/v1/status.alerts` says "gw1 did not take config c2 (rolled_back), still
+  serves c1" until a newer version applies.
+- Change on the way: `haproxy -c` errors now keep only the `[ALERT]` lines (the version banner
+  filled the 300 characters stored per gateway).
+- Cleanup done: no (demo stack kept running for the dashboard work).
+
 ## Decisions log
 | Date | Decision | Based on | Alternatives rejected |
 |---|---|---|---|

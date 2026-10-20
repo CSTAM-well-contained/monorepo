@@ -99,6 +99,18 @@ func (s *stub) Failback(_ context.Context, gw string) error {
 	s.last = "Failback " + gw
 	return s.err
 }
+func (s *stub) ConfigVersions(context.Context) ([]lifecycle.ConfigVersion, error) {
+	s.last = "ConfigVersions"
+	return []lifecycle.ConfigVersion{}, s.err
+}
+func (s *stub) PushConfig(_ context.Context, in lifecycle.ConfigIn) (lifecycle.ConfigVersion, error) {
+	s.last = fmt.Sprint("PushConfig ", in.RateLimit, " ", len(in.Extra))
+	return lifecycle.ConfigVersion{ID: 2, Version: "c2"}, s.err
+}
+func (s *stub) RollbackConfig(_ context.Context, id int64) (lifecycle.ConfigVersion, error) {
+	s.last = fmt.Sprint("RollbackConfig ", id)
+	return lifecycle.ConfigVersion{ID: 3, Version: "c3"}, s.err
+}
 func (s *stub) Routes(context.Context) (model.Desired, error) {
 	s.last = "Routes"
 	return model.Desired{Routes: []model.Route{}}, s.err
@@ -147,6 +159,13 @@ func TestRoutes(t *testing.T) {
 		{"failover needs admin", "POST", "/v1/gateways/gw1/failover", gwTok, "", 401, ""},
 		{"failover bad force", "POST", "/v1/gateways/gw1/failover?force=maybe", adminTok, "", 400, ""},
 		{"failback", "POST", "/v1/gateways/gw2/failback", adminTok, "", 202, "Status"},
+		{"config versions", "GET", "/v1/config", adminTok, "", 200, "ConfigVersions"},
+		{"push config", "POST", "/v1/config", adminTok, `{"rate_limit":500,"extra":["a","b"],"reason":"x"}`, 201, "PushConfig 500 2"},
+		{"push config unknown field", "POST", "/v1/config", adminTok, `{"rate_limit":500,"global":"x"}`, 400, ""},
+		{"push config needs admin", "POST", "/v1/config", gwTok, `{"rate_limit":500}`, 401, ""},
+		{"rollback by name", "POST", "/v1/config/c2/rollback", adminTok, "", 201, "RollbackConfig 2"},
+		{"rollback by number", "POST", "/v1/config/7/rollback", adminTok, "", 201, "RollbackConfig 7"},
+		{"rollback bad version", "POST", "/v1/config/latest/rollback", adminTok, "", 400, ""},
 		{"create hackathon", "POST", "/v1/hackathons", adminTok, `{"name":"h1","domain":"h1.example.org"}`, 201, "CreateHackathon"},
 		{"unknown field", "POST", "/v1/hackathons", adminTok, `{"name":"h1","bogus":1}`, 400, ""},
 		{"negative ttl", "POST", "/v1/hackathons", adminTok, `{"name":"h1","lease_ttl_seconds":-1}`, 400, ""},

@@ -27,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CSTAM-well-contained/monorepo/internal/gw/applier"
 	"github.com/CSTAM-well-contained/monorepo/internal/gw/haproxy"
 	"github.com/CSTAM-well-contained/monorepo/internal/gw/keepalived"
 	"github.com/CSTAM-well-contained/monorepo/internal/model"
@@ -37,6 +38,7 @@ type Applier interface {
 	SyncRoutes(ctx context.Context, generation uint64, routes []haproxy.Route) error
 	Generation() uint64
 	Settings() haproxy.Settings
+	ApplySettings(ctx context.Context, s haproxy.Settings) applier.Result
 }
 
 // Config of the agent.
@@ -66,6 +68,8 @@ type Agent struct {
 	vrrp    string
 	ackSent int64 // last generation acked, for logs
 	forced  *bool // force-backup asked by cpd; nil until the agent knows
+
+	cfgTried, cfgOutcome, cfgErr string // last config version tried and what happened
 }
 
 // ForceBackupFile is the file keepalived's vrrp_track_file reads in RunDir: 1 = step down.
@@ -167,6 +171,7 @@ func (a *Agent) apply(ctx context.Context, d model.Desired) error {
 	case gen == cur && synced:
 		return nil
 	}
+	a.applyConfig(ctx, d.Config) // a refused config is reported in the ack, routes still apply
 	routes, err := Convert(d.Routes)
 	if err == nil {
 		err = a.app.SyncRoutes(ctx, gen, routes)
@@ -185,6 +190,39 @@ func (a *Agent) apply(ctx context.Context, d model.Desired) error {
 	return nil
 }
 
+// applyConfig loads a new config version from cpd: check, hitless reload, verify, and the
+// applier rolls back by itself if the new version does not serve. A version that failed here
+// is not retried: the admin pushes a fixed one or rolls back, which makes a new version.
+func (a *Agent) applyConfig(ctx context.Context, c *model.Config) {
+	if c == nil {
+		return // cpd has no config versions: keep the command-line settings
+	}
+	cur := a.app.Settings()
+	a.mu.Lock()
+	tried, outcome := a.cfgTried, a.cfgOutcome
+	a.mu.Unlock()
+	if c.Version == cur.Version || (c.Version == tried && outcome != string(applier.Applied)) {
+		return
+	}
+	s := cur
+	s.Version, s.RateLimit, s.Extra = c.Version, c.RateLimit, slices.Clone(c.Extra)
+	var res applier.Result
+	if err := s.Validate(); err != nil {
+		res = applier.Result{Version: c.Version, Outcome: applier.Rejected, Err: err}
+	} else {
+		res = a.app.ApplySettings(ctx, s)
+	}
+	msg := ""
+	if res.Err != nil {
+		msg = res.Err.Error()
+	}
+	a.mu.Lock()
+	a.cfgTried, a.cfgOutcome, a.cfgErr = c.Version, string(res.Outcome), msg
+	a.mu.Unlock()
+	a.cfg.Log.Info("config version", "version", c.Version, "outcome", string(res.Outcome), "err", msg,
+		"total_ms", res.Total.Milliseconds(), "rollback_ms", res.Rollback.Milliseconds())
+}
+
 // restore applies the routes saved before a restart (HAProxy may be up already).
 func (a *Agent) restore(ctx context.Context) {
 	data, err := os.ReadFile(a.cfg.StateFile)
@@ -197,6 +235,7 @@ func (a *Agent) restore(ctx context.Context) {
 		return
 	}
 	a.setForced(d)
+	a.applyConfig(ctx, d.Config)
 	routes, err := Convert(d.Routes)
 	if err == nil && d.Generation >= 0 {
 		err = a.app.SyncRoutes(ctx, uint64(d.Generation), routes)
@@ -326,9 +365,10 @@ func (a *Agent) fetch(ctx context.Context, after int64) (model.Desired, error) {
 func (a *Agent) ack(ctx context.Context) error {
 	a.mu.Lock()
 	vrrp := a.vrrp
+	body := model.Ack{ConfigTried: a.cfgTried, ConfigOutcome: a.cfgOutcome, ConfigError: a.cfgErr}
 	a.mu.Unlock()
 	gen := int64(a.app.Generation()) //nolint:gosec // generations are small
-	body := model.Ack{Generation: gen, ConfigVersion: a.app.Settings().Version, VRRPState: vrrp}
+	body.Generation, body.ConfigVersion, body.VRRPState = gen, a.app.Settings().Version, vrrp
 	if err := a.call(ctx, http.MethodPost, "/v1/gateways/"+a.cfg.Name+"/ack", body, nil); err != nil {
 		return err
 	}

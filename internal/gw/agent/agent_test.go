@@ -9,11 +9,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/CSTAM-well-contained/monorepo/internal/gw/applier"
 	"github.com/CSTAM-well-contained/monorepo/internal/gw/haproxy"
 	"github.com/CSTAM-well-contained/monorepo/internal/model"
 )
@@ -27,6 +29,36 @@ type fakeApplier struct {
 	routes []haproxy.Route
 	calls  int
 	fail   error
+
+	settings   haproxy.Settings // serving; Version "" means the default v7
+	outcome    applier.Outcome  // what ApplySettings answers (default applied)
+	cfgApplies []string         // versions ApplySettings was asked for
+}
+
+func baseSettings() haproxy.Settings {
+	return haproxy.Settings{Version: "v7", GWName: "gw1", Dir: "/etc/haproxy", AdminSocket: "/run/haproxy/admin.sock",
+		SocketMode: "660", HTTPBind: ":80", CanaryAddr: "127.0.0.1:9102", Slots: 8, RateLimit: 2000}
+}
+
+func (f *fakeApplier) ApplySettings(_ context.Context, s haproxy.Settings) applier.Result {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cfgApplies = append(f.cfgApplies, s.Version)
+	o := f.outcome
+	if o == "" {
+		o = applier.Applied
+	}
+	if o != applier.Applied {
+		return applier.Result{Version: s.Version, Outcome: o, Err: errors.New("canary status 500")}
+	}
+	f.settings = s
+	return applier.Result{Version: s.Version, Outcome: o}
+}
+
+func (f *fakeApplier) applied() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.cfgApplies)
 }
 
 func (f *fakeApplier) SyncRoutes(_ context.Context, gen uint64, routes []haproxy.Route) error {
@@ -46,7 +78,14 @@ func (f *fakeApplier) Generation() uint64 {
 	return f.gen
 }
 
-func (f *fakeApplier) Settings() haproxy.Settings { return haproxy.Settings{Version: "v7"} }
+func (f *fakeApplier) Settings() haproxy.Settings {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.settings.Version == "" {
+		return baseSettings()
+	}
+	return f.settings
+}
 
 // fakeCPD serves desired states and records acks.
 type fakeCPD struct {
@@ -375,5 +414,62 @@ func TestForceBackupUntouchedUntilKnown(t *testing.T) {
 	eventually(t, "stale ready", func() bool { return r.readyFile() == "stale\n" })
 	if st, err := os.Stat(fb); err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("file rewritten before cpd or a saved state said anything: %v %v", st, err)
+	}
+}
+
+func TestConfigVersionFromCPD(t *testing.T) {
+	app := &fakeApplier{}
+	d := desired(1, "a.h.example.org")
+	d.Config = &model.Config{Version: "c1", RateLimit: 500, Extra: []string{"http-request deny if { path /x }"}}
+	cpd := &fakeCPD{desired: d}
+	r := newRig(t, app, cpd)
+	r.start(t)
+	eventually(t, "c1 acked", func() bool { a, _ := cpd.lastAck(); return a.ConfigVersion == "c1" && a.ConfigOutcome == "applied" })
+	if s := app.Settings(); s.RateLimit != 500 || len(s.Extra) != 1 || s.HTTPBind != ":80" {
+		t.Fatalf("settings = %+v (other fields must be kept)", s)
+	}
+
+	// c2 loads but does not serve: the applier rolled back; the ack says so and c2 is not retried
+	app.mu.Lock()
+	app.outcome = applier.RolledBack
+	app.mu.Unlock()
+	d = desired(2, "a.h.example.org")
+	d.Config = &model.Config{Version: "c2", RateLimit: 500, Extra: []string{"http-request return status 500"}}
+	cpd.set(d)
+	eventually(t, "c2 rolled back", func() bool {
+		a, _ := cpd.lastAck()
+		return a.Generation == 2 && a.ConfigTried == "c2" && a.ConfigOutcome == "rolled_back" && a.ConfigVersion == "c1"
+	})
+	if a, _ := cpd.lastAck(); a.ConfigError == "" {
+		t.Fatal("no error reported")
+	}
+	d3 := desired(3, "a.h.example.org", "b.h.example.org")
+	d3.Config = d.Config
+	cpd.set(d3)
+	eventually(t, "gen 3 acked", func() bool { a, _ := cpd.lastAck(); return a.Generation == 3 })
+	if got := app.applied(); !slices.Equal(got, []string{"c1", "c2"}) {
+		t.Fatalf("ApplySettings calls = %v (a failed version must not be retried)", got)
+	}
+
+	// rollback = a new version with c1 content
+	app.mu.Lock()
+	app.outcome = applier.Applied
+	app.mu.Unlock()
+	d4 := desired(4, "a.h.example.org", "b.h.example.org")
+	d4.Config = &model.Config{Version: "c3", RateLimit: 500, Extra: []string{"http-request deny if { path /x }"}}
+	cpd.set(d4)
+	eventually(t, "c3 applied", func() bool { a, _ := cpd.lastAck(); return a.ConfigVersion == "c3" && a.ConfigOutcome == "applied" })
+}
+
+func TestInvalidConfigRejectedLocally(t *testing.T) {
+	app := &fakeApplier{}
+	d := desired(1)
+	d.Config = &model.Config{Version: "c1", RateLimit: 0}
+	cpd := &fakeCPD{desired: d}
+	r := newRig(t, app, cpd)
+	r.start(t)
+	eventually(t, "rejected", func() bool { a, _ := cpd.lastAck(); return a.ConfigOutcome == "rejected" && a.ConfigVersion == "v7" })
+	if got := app.applied(); len(got) != 0 {
+		t.Fatalf("invalid settings reached HAProxy: %v", got)
 	}
 }

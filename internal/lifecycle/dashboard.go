@@ -89,7 +89,7 @@ func (c *Controller) Routes(ctx context.Context) (model.Desired, error) {
 
 // alerts turns the gateway reports into the warnings the dashboard shows. The rules live
 // here, not in the browser, so the CLI and the tests see the same thing.
-func alerts(gen int64, gws []Gateway) []string {
+func alerts(gen int64, config string, gws []Gateway) []string {
 	out := []string{}
 	masters, alive := 0, 0
 	for _, g := range gws {
@@ -106,6 +106,10 @@ func alerts(gen int64, gws []Gateway) []string {
 		}
 		if g.VRRPState == "FAULT" {
 			out = append(out, g.Name+" is in FAULT (unhealthy or forced backup)")
+		}
+		if config != "" && g.ConfigTried == config && g.ConfigOutcome != "applied" && g.ConfigOutcome != "" {
+			out = append(out, fmt.Sprintf("%s did not take config %s (%s), still serves %s",
+				g.Name, config, g.ConfigOutcome, g.ConfigVersion))
 		}
 	}
 	switch {

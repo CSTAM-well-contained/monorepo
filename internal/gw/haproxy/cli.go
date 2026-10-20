@@ -175,7 +175,22 @@ func (c Checker) Check(ctx context.Context, path string) error {
 	args := append(append([]string{}, c.Argv[1:]...), "-c", "-f", path)
 	out, err := exec.CommandContext(ctx, c.Argv[0], args...).CombinedOutput() //nolint:gosec // argv comes from agent config, not from requests
 	if err != nil {
-		return fmt.Errorf("haproxy -c: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("haproxy -c: %w: %s", err, CheckErrors(string(out)))
 	}
 	return nil
+}
+
+// CheckErrors keeps the [ALERT] lines of `haproxy -c` output (the reason a config is refused),
+// without the version banner and the [NOTICE] lines. With no alert it returns the whole output.
+func CheckErrors(out string) string {
+	var alerts []string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "[ALERT]") {
+			alerts = append(alerts, strings.TrimSpace(l))
+		}
+	}
+	if len(alerts) == 0 {
+		return strings.TrimSpace(out)
+	}
+	return strings.Join(alerts, " | ")
 }

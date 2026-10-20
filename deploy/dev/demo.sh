@@ -17,6 +17,8 @@
 #                         150 per team, under the 200/s per-Host limit; KEEPALIVE=false;
 #                         TIMEOUT=0.3s: per-request timeout, default 2s)
 #   demo.sh reload        broken HAProxy config -> rollback (applier integration tests)
+#   demo.sh config        the same through cpd on the running gateways: good, broken, typo,
+#                         then manual rollback, while a team is probed through the VIP
 #   demo.sh teardown      end the hackathon: team containers removed, IPs quarantined then freed
 #   demo.sh status        cpd status and containers
 #   demo.sh down          remove everything
@@ -270,6 +272,34 @@ reload() {
     grep -E '^(=== RUN|--- |\s+\S+_test.go|ok|FAIL)'
 }
 
+# config: the reload/rollback story through cpd on the running gateways: a good version, a
+# valid-but-broken one (rolled back by each gateway), a syntax error (rejected), then a manual
+# rollback, with a team probed through the VIP the whole time.
+config() {
+  local host; host=$(api GET "/v1/hackathons/$HACK/teams" | jq -r '[.[] | select(.state=="ready")][0].fqdn // empty')
+  [ -n "$host" ] || die "no ready team in $HACK (run: demo.sh teams N)"
+  : >"$STATE/probe"
+  ( end=$(( $(date +%s) + 16 ))
+    while [ "$(date +%s)" -lt "$end" ]; do TMO=0.5 via "$host" | cut -d' ' -f1 >>"$STATE/probe"; sleep 0.02; done ) &
+  local probe=$! good="" step v
+  for step in \
+    'push a good version (rate limit 1000 per 10 s)|{"rate_limit":1000,"reason":"demo: good"}' \
+    'push a valid but broken version (healthz answers 500)|{"rate_limit":1000,"extra":["http-request return status 500 if { path /__gw/healthz }"],"reason":"demo: broken"}' \
+    'push a syntax error|{"rate_limit":1000,"extra":["this-is-not-a-directive"],"reason":"demo: typo"}'; do
+    echo "== ${step%%|*}"
+    v=$(api POST /v1/config "${step#*|}" | jq -r .version)
+    good=${good:-$v}
+    sleep 3
+    api GET /v1/status | jq -r '.gateways[] | "   \(.name): tried \(.config_tried) -> \(.config_outcome), serves \(.config_version)  \(.config_error // "" | .[0:60])"'
+  done
+  echo "== manual rollback to $good"
+  api POST "/v1/config/$good/rollback" | jq -r '"   new version \(.version): \(.reason)"'
+  sleep 3
+  api GET /v1/status | jq -r '.gateways[] | "   \(.name): serves \(.config_version) (\(.config_outcome))"'
+  wait "$probe"
+  echo "== $host meanwhile: $(grep -c '^200' "$STATE/probe") x 200, $(grep -vc '^200' "$STATE/probe") other"
+}
+
 teardown() {
   echo "== ending hackathon $HACK"
   api DELETE "/v1/hackathons/$HACK" >/dev/null
@@ -301,6 +331,6 @@ down() {
 }
 
 case "${1:-}" in
-  up|teams|stress|failover|load|reload|teardown|status|down) "$@" ;;
-  *) sed -n "2,22p" "$0"; exit 2 ;;
+  up|teams|stress|failover|load|reload|config|teardown|status|down) "$@" ;;
+  *) sed -n "2,24p" "$0"; exit 2 ;;
 esac

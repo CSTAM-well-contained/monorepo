@@ -39,6 +39,9 @@ type Controller interface {
 	Routes(ctx context.Context) (model.Desired, error)
 	Failover(ctx context.Context, gw string, force bool) error
 	Failback(ctx context.Context, gw string) error
+	ConfigVersions(ctx context.Context) ([]lifecycle.ConfigVersion, error)
+	PushConfig(ctx context.Context, in lifecycle.ConfigIn) (lifecycle.ConfigVersion, error)
+	RollbackConfig(ctx context.Context, id int64) (lifecycle.ConfigVersion, error)
 }
 
 // MaxWait caps the desired-state long-poll (below common proxy idle timeouts).
@@ -91,6 +94,9 @@ func (s *Server) routes() []route {
 		{"GET /v1/routes", adminOnly, s.routeTable},
 		{"POST /v1/gateways/{gw}/failover", adminOnly, s.failover},
 		{"POST /v1/gateways/{gw}/failback", adminOnly, s.failback},
+		{"GET /v1/config", adminOnly, s.configVersions},
+		{"POST /v1/config", adminOnly, s.pushConfig},
+		{"POST /v1/config/{v}/rollback", adminOnly, s.rollbackConfig},
 		{"GET /v1/gateways/{gw}/desired", gatewayOnly, s.desired},
 		{"POST /v1/gateways/{gw}/ack", gatewayOnly, s.ack},
 	}
@@ -287,6 +293,31 @@ func (s *Server) gatewayAction(w http.ResponseWriter, r *http.Request, err error
 	}
 	st, err := s.C.Status(r.Context())
 	s.reply(w, r, http.StatusAccepted, st, err)
+}
+
+func (s *Server) configVersions(w http.ResponseWriter, r *http.Request) {
+	vs, err := s.C.ConfigVersions(r.Context())
+	s.reply(w, r, http.StatusOK, vs, err)
+}
+
+func (s *Server) pushConfig(w http.ResponseWriter, r *http.Request) {
+	var in lifecycle.ConfigIn
+	if !s.decode(w, r, &in) {
+		return
+	}
+	v, err := s.C.PushConfig(r.Context(), in)
+	s.reply(w, r, http.StatusCreated, v, err)
+}
+
+// rollbackConfig: {v} is a version name (c3) or its number (3).
+func (s *Server) rollbackConfig(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(strings.TrimPrefix(r.PathValue("v"), "c"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "version must look like c3")
+		return
+	}
+	v, err := s.C.RollbackConfig(r.Context(), id)
+	s.reply(w, r, http.StatusCreated, v, err)
 }
 
 func (s *Server) desired(w http.ResponseWriter, r *http.Request) {

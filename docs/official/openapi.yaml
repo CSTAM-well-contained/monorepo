@@ -181,6 +181,42 @@ paths:
         "200": {description: routes, content: {application/json: {schema: {$ref: "#/components/schemas/Desired"}}}}
         "401": {$ref: "#/components/responses/Unauthorized"}
 
+  /v1/config:
+    get:
+      tags: [config]
+      summary: HAProxy config versions owned by cpd, newest first (at most 100)
+      responses:
+        "200": {description: versions, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/ConfigVersion"}}}}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+    post:
+      tags: [config]
+      summary: Push a new config version to both gateways
+      description: >
+        Each gateway renders it, checks it with `haproxy -c`, reloads without dropping
+        connections, verifies that the new version serves, and rolls back by itself if not.
+        The outcome per gateway is in `GET /v1/status` (`config_tried`, `config_outcome`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ConfigIn"}
+      responses:
+        "201": {description: new version, content: {application/json: {schema: {$ref: "#/components/schemas/ConfigVersion"}}}}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /v1/config/{v}/rollback:
+    parameters:
+      - {name: v, in: path, required: true, schema: {type: string, example: c3}, description: "version name (c3) or number (3)"}
+    post:
+      tags: [config]
+      summary: Manual rollback, publishes a new version with the content of version v
+      responses:
+        "201": {description: new version, content: {application/json: {schema: {$ref: "#/components/schemas/ConfigVersion"}}}}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
   /v1/gateways/{gw}/failover:
     parameters: [{$ref: "#/components/parameters/Gateway"}]
     post:
@@ -333,6 +369,9 @@ components:
         alive: {type: boolean, description: "acked in the last 40 s"}
         in_sync: {type: boolean, description: "serves the current routes generation"}
         force_backup: {type: boolean, description: "asked to step down by a planned failover"}
+        config_tried: {type: string, description: "last config version this gateway tried"}
+        config_outcome: {type: string, enum: [applied, rejected, rolled_back, failed, ""]}
+        config_error: {type: string}
     Status:
       type: object
       properties:
@@ -340,7 +379,27 @@ components:
         ip_pool: {type: object, additionalProperties: {type: integer}, description: "count per IP state: free, allocated, quarantine, reserved"}
         teams: {type: object, additionalProperties: {type: integer}, description: count per team state}
         gateways: {type: array, items: {$ref: "#/components/schemas/Gateway"}}
-        alerts: {type: array, items: {type: string}, description: "split brain, no master, gateway behind or silent; empty when healthy"}
+        alerts: {type: array, items: {type: string}, description: "split brain, no master, gateway behind or silent, config refused; empty when healthy"}
+        config_version: {type: string, description: "newest config version, empty before the first push"}
+    ConfigIn:
+      type: object
+      additionalProperties: false
+      required: [rate_limit]
+      properties:
+        rate_limit: {type: integer, minimum: 1, maximum: 1000000, description: "requests per 10 s per Host"}
+        extra: {type: array, maxItems: 20, items: {type: string, maxLength: 200}, description: "raw HAProxy lines in the HTTP frontend, printable ASCII"}
+        reason: {type: string, maxLength: 200}
+    ConfigVersion:
+      type: object
+      properties:
+        id: {type: integer}
+        version: {type: string, example: c3}
+        rate_limit: {type: integer}
+        extra: {type: array, items: {type: string}}
+        reason: {type: string}
+        copied_from: {type: integer, description: "set on a rollback"}
+        created_at: {type: string, format: date-time}
+        current: {type: boolean}
     Event:
       type: object
       properties:
@@ -371,11 +430,21 @@ components:
         generation: {type: integer}
         routes: {type: array, items: {$ref: "#/components/schemas/Route"}}
         force_backup: {type: array, items: {type: string}, description: "gateways asked to step down (planned failover)"}
+        config:
+          type: object
+          description: newest config version, absent before the first push
+          properties:
+            version: {type: string}
+            rate_limit: {type: integer}
+            extra: {type: array, items: {type: string}}
     Ack:
       type: object
       additionalProperties: false
       required: [generation]
       properties:
         generation: {type: integer}
-        config_version: {type: string}
+        config_version: {type: string, description: "the version that serves"}
         vrrp_state: {type: string, enum: [MASTER, BACKUP, FAULT, STOP, ""]}
+        config_tried: {type: string, description: "last config version tried"}
+        config_outcome: {type: string, enum: [applied, rejected, rolled_back, failed, ""]}
+        config_error: {type: string, description: "stored cut to 300 printable characters"}

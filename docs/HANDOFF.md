@@ -261,8 +261,13 @@ the API (gateway `alive`/`in_sync`, `alerts`), never in the browser. Slices:
    re-asserts it every 500 ms). `demo.sh failover planned`: 304-310 ms, 1 probe lost (notebook
    L10). Fixed on the way: `vrrp-notify.sh` wrote `vrrp.state` 0600 root, so on systemd
    gateways cpd never saw MASTER/BACKUP.
-3. TODO: config versions + manual rollback (cpd owns HAProxy settings versions, rollback =
-   new version with old content; agent runs `applier.ApplySettings`).
+3. DONE: config versions + manual rollback. `GET/POST /v1/config`, `POST /v1/config/{v}/rollback`
+   (migration 00003, versions `c<id>`, rollback = new version with old content). `Desired.config`;
+   the agent runs `applier.ApplySettings` (check, reload, verify, auto-rollback), never retries a
+   version that failed on it, and acks `config_tried/outcome/error`. `demo.sh config`: broken
+   version rolled back in 139 ms (0.80 s total), typo rejected in 23 ms, 0 failed requests
+   (notebook L11). Note: an agent restart keeps flag settings until the first fetch re-applies
+   the newest version (one extra reload).
 4. TODO: live traffic logs (HAProxy JSON log -> agent UDP syslog -> cpd ring buffer -> `GET /v1/traffic`).
 5. TODO: the dashboard (`web/`, `go:embed`, served by cpd at `/`), docs, video script.
 

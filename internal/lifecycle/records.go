@@ -28,6 +28,7 @@ var (
 	domainRE  = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$`)
 	versionRE = regexp.MustCompile(`^[A-Za-z0-9._-]{0,32}$`)
 	vrrpRE    = regexp.MustCompile(`^(|MASTER|BACKUP|FAULT|STOP)$`)
+	outcomeRE = regexp.MustCompile(`^(|applied|rejected|rolled_back|failed)$`)
 )
 
 // Hackathon is one event; its teams are published under its domain.
@@ -68,6 +69,9 @@ type Gateway struct {
 	Alive         bool       `json:"alive"`   // acked within GatewayAlive
 	InSync        bool       `json:"in_sync"` // serves the current generation
 	ForceBackup   bool       `json:"force_backup"`
+	ConfigTried   string     `json:"config_tried"`   // last config version this gateway tried
+	ConfigOutcome string     `json:"config_outcome"` // applied, rejected, rolled_back, failed
+	ConfigError   string     `json:"config_error,omitempty"`
 }
 
 // Status is the platform overview (dashboard, demo).
@@ -77,6 +81,7 @@ type Status struct {
 	Teams      map[string]int `json:"teams"`
 	Gateways   []Gateway      `json:"gateways"`
 	Alerts     []string       `json:"alerts"` // split brain, no master, gateway behind or silent
+	Config     string         `json:"config_version"` // newest config version, "" before the first push
 }
 
 func pgCode(err error) string {
@@ -233,6 +238,10 @@ func (c *Controller) desired(ctx context.Context) (model.Desired, error) {
 				return err
 			}
 			d.ForceBackup, err = pgx.CollectRows(rows, pgx.RowTo[string])
+			if err != nil {
+				return err
+			}
+			d.Config, err = currentConfig(ctx, tx)
 			return err
 		})
 	if err != nil {
@@ -244,10 +253,11 @@ func (c *Controller) desired(ctx context.Context) (model.Desired, error) {
 // Ack records what a gateway applied. A generation above the current one is refused:
 // it would let the IPAM free addresses that some gateway may still route to.
 func (c *Controller) Ack(ctx context.Context, gateway string, a model.Ack) error {
-	if !labelRE.MatchString(gateway) || !versionRE.MatchString(a.ConfigVersion) ||
-		!vrrpRE.MatchString(a.VRRPState) || a.Generation < 0 {
-		return fmt.Errorf("%w: bad gateway name, config version or vrrp state", ErrInvalidSpec)
+	if !labelRE.MatchString(gateway) || !versionRE.MatchString(a.ConfigVersion) || !versionRE.MatchString(a.ConfigTried) ||
+		!vrrpRE.MatchString(a.VRRPState) || !outcomeRE.MatchString(a.ConfigOutcome) || a.Generation < 0 {
+		return fmt.Errorf("%w: bad gateway name, config version, config outcome or vrrp state", ErrInvalidSpec)
 	}
+	a.ConfigError = cleanAckError(a.ConfigError)
 	return store.InTx(ctx, c.db, func(tx pgx.Tx) error {
 		var gen int64
 		if err := tx.QueryRow(ctx, `SELECT gen FROM routes_generation`).Scan(&gen); err != nil {
@@ -257,20 +267,30 @@ func (c *Controller) Ack(ctx context.Context, gateway string, a model.Ack) error
 			return fmt.Errorf("%w: generation %d is ahead of %d", ErrInvalidSpec, a.Generation, gen)
 		}
 		var old *string
-		err := tx.QueryRow(ctx, `SELECT vrrp_state FROM gateways WHERE name = $1 FOR UPDATE`, gateway).Scan(&old)
+		var oldTried, oldOutcome string
+		err := tx.QueryRow(ctx, `SELECT vrrp_state, config_tried, config_outcome FROM gateways WHERE name = $1 FOR UPDATE`,
+			gateway).Scan(&old, &oldTried, &oldOutcome)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("ack: %w", err)
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO gateways (name, acked_gen, config_version, vrrp_state, vrrp_since, last_seen)
-			 VALUES ($1, $2, $3, $4, now(), now())
+			`INSERT INTO gateways (name, acked_gen, config_version, vrrp_state, vrrp_since, last_seen,
+			   config_tried, config_outcome, config_error)
+			 VALUES ($1, $2, $3, $4, now(), now(), $5, $6, $7)
 			 ON CONFLICT (name) DO UPDATE SET acked_gen = EXCLUDED.acked_gen,
 			   config_version = EXCLUDED.config_version, vrrp_state = EXCLUDED.vrrp_state,
 			   vrrp_since = CASE WHEN gateways.vrrp_state = EXCLUDED.vrrp_state THEN gateways.vrrp_since
 			                ELSE now() END,
-			   last_seen = now()`,
-			gateway, a.Generation, a.ConfigVersion, a.VRRPState); err != nil {
+			   last_seen = now(), config_tried = EXCLUDED.config_tried,
+			   config_outcome = EXCLUDED.config_outcome, config_error = EXCLUDED.config_error`,
+			gateway, a.Generation, a.ConfigVersion, a.VRRPState, a.ConfigTried, a.ConfigOutcome, a.ConfigError); err != nil {
 			return fmt.Errorf("ack: %w", err)
+		}
+		if a.ConfigOutcome != "" && (a.ConfigTried != oldTried || a.ConfigOutcome != oldOutcome) {
+			if err := c.event(ctx, tx, "config."+a.ConfigOutcome, 0, map[string]any{"gateway": gateway,
+				"version": a.ConfigTried, "serving": a.ConfigVersion, "error": a.ConfigError}); err != nil {
+				return err
+			}
 		}
 		if old == nil || *old != a.VRRPState {
 			return c.event(ctx, tx, "gateway.vrrp", 0, map[string]any{"gateway": gateway, "state": a.VRRPState})
@@ -307,7 +327,8 @@ func (c *Controller) Status(ctx context.Context) (Status, error) {
 	}
 	rows, err = c.db.Query(ctx,
 		`SELECT name, acked_gen, config_version, vrrp_state, vrrp_since, last_seen,
-		   last_seen > now() - $1 * interval '1 millisecond', acked_gen >= $2, force_backup
+		   last_seen > now() - $1 * interval '1 millisecond', acked_gen >= $2, force_backup,
+		   config_tried, config_outcome, config_error
 		 FROM gateways ORDER BY name`, GatewayAlive.Milliseconds(), s.Generation)
 	if err != nil {
 		return s, fmt.Errorf("status: %w", err)
@@ -316,7 +337,14 @@ func (c *Controller) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return s, fmt.Errorf("status: %w", err)
 	}
-	s.Alerts = alerts(s.Generation, s.Gateways)
+	var cfgID *int64
+	if err := c.db.QueryRow(ctx, `SELECT max(id) FROM config_versions`).Scan(&cfgID); err != nil {
+		return s, fmt.Errorf("status: %w", err)
+	}
+	if cfgID != nil {
+		s.Config = versionName(*cfgID)
+	}
+	s.Alerts = alerts(s.Generation, s.Config, s.Gateways)
 	return s, nil
 }
 

@@ -78,6 +78,8 @@ MAC. Only the gateway ports carry the VIP in `allowed_address_pairs`, so no team
 | Team down | maintenance page with `Retry-After`, never another team's backend |
 | Routing integrity | one backend per slot, one server per backend; the `hosts.map` swap is atomic; `gwagent` never applies an older generation (`TestNeverAppliesOlderGeneration`) and refuses invalid routes (`TestBadRouteIsNotApplied`) |
 | Config changes | `haproxy -c` before use, verification through the real frontend after reload, rollback on failure (benchmark B1) |
+| Config pushed through the API (`POST /v1/config`) | admin token only; `extra` lines are a deliberate admin escape hatch placed inside the HTTP frontend: at most 20 lines of 1-200 printable ASCII characters, so no newline can open a new section (`TestConfigInValidate`); the agent validates the settings again and each gateway runs the same check, reload, verify, rollback (notebook L11). An admin can still write a rule that misroutes traffic: that is the admin's power, recorded in the event log (`config.created`, `config.rollback`) |
+| Planned failover (`POST /v1/gateways/{gw}/failover`) | admin token only; refused (409) unless another gateway is alive, serving the current generation, out of FAULT and not forced down (`TestFailover`), so one click cannot take the public entry down |
 
 **Measured (benchmark B8):** one team flooded at ~79,000 requests/s for 20 s: 99.9 % answered
 429, and the other 19 teams, at 2,850 requests/s together, had **0 errors** and a p99 latency of
