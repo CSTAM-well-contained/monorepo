@@ -25,7 +25,7 @@ docs/           brief, implementation guide, team setup, lab notebook
 |---|---|
 | Performance benchmark report | [PDF](docs/official/pdf/CSTAM-benchmark-report.pdf) · [benchmark.md](docs/official/benchmark.md) · [Phase 2 validation](docs/official/phase2.md) |
 | API integration and security architecture | [PDF](docs/official/pdf/CSTAM-api-security.pdf) · [api.md](docs/official/api.md) · [openapi.yaml](docs/official/openapi.yaml) · [security.md](docs/official/security.md) · [architecture.md](docs/official/architecture.md) |
-| Video (2:34) | link submitted via SwissTransfer; made with [`deploy/video/`](deploy/video/make-video.ps1), script in [video-script.md](docs/official/video-script.md) |
+| Video (2:34) | link submitted via SwissTransfer; storyboard and how to replay the demo: [video-script.md](docs/official/video-script.md) |
 
 Measured: 20 and 50 simultaneous team registrations, 0 errors; teardown and lease expiry purge
 sandboxes, routes and IPs automatically (IPs recycled only after both gateways confirm);

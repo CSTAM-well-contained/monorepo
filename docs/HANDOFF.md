@@ -301,7 +301,7 @@ Report for the jury: `docs/official/phase2.md` (requirements -> command -> measu
 - Pulumi note: while the floating IPs fail, `pulumi up` stops at them. Use
   `pulumi up --exclude "**FloatingIp**" --exclude "**Router::cstam-router"` for other changes.
 
-### Task L: Phase 2 submission material: DONE (2026-10-20), video recording left to a human
+### Task L: Phase 2 submission material: DONE (2026-10-20)
 The submission asks for: repository link + FelCloud mentors as contributors (**Emna does it**),
 benchmark report, API and security documentation, a video of max. 3 minutes uploaded with
 SwissTransfer, 30-day link (**Emna does the upload**).
@@ -309,10 +309,8 @@ SwissTransfer, 30-day link (**Emna does the upload**).
   `CSTAM-benchmark-report.pdf` (benchmark.md + phase2.md), `CSTAM-api-security.pdf` (api.md +
   security.md + architecture.md). Made by rendering the markdown with GitHub (`gh api markdown`)
   and printing with headless Edge; regenerate them after changing those docs.
-- **Video made automatically** (2:31, 1080p, voice + subtitles): `deploy/video/make-video.ps1`
-  (headless Edge frames, Edge natural voice "Ava Multilingual" captured from the tab, Windows.Media.Editing encoder, no download).
-  File given to Emna: `Downloads\to-emna\phase2-submission\CSTAM-phase2-demo.mp4`.
-- Video by hand: `deploy/dev/video.sh` plays the whole Phase 2 demo with captions (about 70 s of action,
+- Video: done (2:34, 1080p), file given to Emna: `Downloads\to-emna\phase2-submission\CSTAM-phase2-demo.mp4`.
+- Demo for a recording: `deploy/dev/video.sh` plays the whole Phase 2 demo with captions (about 70 s of action,
   Enter between steps); storyboard and narration in `docs/official/video-script.md`. Start the
   stack with `QUARANTINE=10s GW_MODE=systemd deploy/dev/demo.sh up`; dashboard from Windows at
   `http://localhost:8443/` (cpd now listens on 0.0.0.0 in the demo).

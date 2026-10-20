@@ -27,9 +27,9 @@ api() { # api METHOD PATH [JSON]
 }
 banner() { printf '\n\033[1;97;44m  %s  \033[0m\n' "$*"; }
 say() { printf '\033[1;36m> %s\033[0m\n' "$*"; }
-# next waits before the next step: Enter, a fixed pause (VIDEO_AUTO=1), or, for an automatic
-# recording (deploy/video/), a gate: the step number is written to $VIDEO_MARK when this step's
-# work is done, and the script goes on when the recorder writes a number >= it to $VIDEO_GATE.
+# next waits before the next step: Enter, a fixed pause (VIDEO_AUTO=1), or, when another program
+# paces the steps, a gate: the step number is written to $VIDEO_MARK when this step's
+# work is done, and the script goes on when that program writes a number >= it to $VIDEO_GATE.
 step_no=0
 next() {
   step_no=$((step_no + 1))
@@ -109,4 +109,4 @@ cat <<'EOF'
   isolation      flooded team refused, others 0 errors; sandboxes isolated on FelCloud
 EOF
 banner "github.com/CSTAM-well-contained/monorepo  -  docs/official/"
-[ -z "${VIDEO_GATE:-}" ] || echo $((step_no + 1)) >"$VIDEO_MARK"   # done (automatic recording)
+[ -z "${VIDEO_GATE:-}" ] || echo $((step_no + 1)) >"$VIDEO_MARK"   # done

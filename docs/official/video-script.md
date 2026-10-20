@@ -1,19 +1,5 @@
 # Phase 2 video: recording script (max. 3 minutes)
 
-**Automatic version (used for the submission, 2:31, 1080p):** `deploy/video/make-video.ps1`
-records it with no screen recorder: it runs `deploy/dev/video.sh` on the real platform, captures
-the live dashboard with headless Edge, composes each frame (terminal, dashboard, subtitles,
-`deploy/video/stage.html`), reads the narration with a natural voice (Edge online voices, default `-Voice "Ava Multilingual"`; the offline Windows voice is the fallback) and encodes the MP4
-with Windows' own video engine. On Windows, after `QUARANTINE=10s GW_MODE=systemd
-deploy/dev/demo.sh up` and `deploy/dev/demo.sh teams 3` in WSL:
-```powershell
-powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Debian\home\lenovo\cstam\deploy\video\make-video.ps1
-```
-The output goes to `Videos\CSTAM-phase2-demo.mp4` (`-Out` to change). The narration text is the
-`$scenes` list in that script.
-
-The manual version below is for recording yourself with your own voice.
-
 The demo runs by itself (`deploy/dev/video.sh`, about 70 s of action); you press **Enter** to go
 to the next step while you speak. Screen: terminal on the left half, the dashboard on the right.
 
