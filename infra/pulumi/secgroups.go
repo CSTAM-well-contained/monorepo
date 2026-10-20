@@ -29,7 +29,7 @@ func newSecGroups(ctx *pulumi.Context, s Settings) (*SecGroups, error) {
 			Name:        pulumi.String(name),
 			Description: pulumi.String(desc),
 			// Keep the default egress rules (IPv4 + IPv6 allow all): apt, docker pull, NTP.
-			// Team egress is restricted per namespace with nftables on the hosts.
+			// cstam-team is made separately, without them (egress.go).
 			DeleteDefaultRules: pulumi.Bool(false),
 			Tags:               s.tags(),
 		})
@@ -48,7 +48,16 @@ func newSecGroups(ctx *pulumi.Context, s Settings) (*SecGroups, error) {
 	if g.Host, err = mk("cstam-host", "CSTAM hackathon hosts, primary NIC (management)"); err != nil {
 		return nil, err
 	}
-	if g.Team, err = mk("cstam-team", "CSTAM team ports: only gateways may connect"); err != nil {
+	// cstam-team has no default egress: teamEgress allows everything outside our subnet only.
+	if g.Team, err = networking.NewSecGroup(ctx, "cstam-team", &networking.SecGroupArgs{
+		Name:               pulumi.String("cstam-team"),
+		Description:        pulumi.String("CSTAM team ports: only gateways may connect; no egress into 10.20.0.0/24"),
+		DeleteDefaultRules: pulumi.Bool(true),
+		Tags:               s.tags(),
+	}); err != nil {
+		return nil, err
+	}
+	if err := teamEgress(ctx, g.Team); err != nil {
 		return nil, err
 	}
 

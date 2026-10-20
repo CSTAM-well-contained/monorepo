@@ -1,0 +1,26 @@
+#cloud-config
+# CSTAM isolation lab (notebook L14): probe TCP targets from this VM and show the results on the
+# VGA login screen (/etc/issue), read through the noVNC console (no floating IP needed).
+# OPEN = connected, REFUSED = reachable but nothing listens, FILTERED = dropped (timeout).
+write_files:
+  - path: /usr/local/bin/cstam-probe
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      sleep 40
+      targets="10.20.0.193:80 10.20.0.193:8000 10.20.0.193:22 10.20.0.11:22 10.20.0.11:8404 10.20.0.11:80 10.20.0.12:22 10.20.0.5:22 10.20.0.5:8443 10.20.0.5:5432"
+      out=/run/cstam-probe.txt
+      for round in 1 2 3; do
+        : >$out
+        for t in $targets; do
+          timeout 3 bash -c "exec 3<>/dev/tcp/${t%:*}/${t#*:}" 2>/dev/null
+          rc=$?
+          if [ $rc -eq 0 ]; then r=OPEN; elif [ $rc -eq 124 ]; then r=FILTERED; else r=REFUSED; fi
+          printf '%-18s %s\n' "$t" "$r" >>$out
+        done
+        sleep 10
+      done
+      { echo; echo "CSTAMPROBE from $(hostname) $(hostname -I) after 3 rounds, $(date -u +%H:%M:%S)Z"; cat $out; echo; } >/etc/issue
+      systemctl restart getty@tty1
+runcmd:
+  - [bash, -c, "nohup /usr/local/bin/cstam-probe >/dev/null 2>&1 &"]

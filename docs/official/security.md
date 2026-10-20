@@ -50,6 +50,7 @@ Five role groups, 14 ingress rules, all in one table in `infra/pulumi/secgroups.
 | | TCP 8443 (`cpd`, `config.CPDPort`) | `cstam-gw`, `cstam-host` |
 | `cstam-host` (hackathon hosts, Phase 2) | TCP 22, ICMP | `cstam-cp` only |
 | `cstam-team` (every team port) | TCP 80 and 8000-8099 | `cstam-gw` only |
+| `cstam-team` **egress** | any protocol to 0.0.0.0/0 **except 10.20.0.0/24** (24 prefixes, `infra/pulumi/egress.go`); no default rules | teams reach the internet and metadata, never cp, the gateways or each other |
 
 What is deliberately **absent**:
 - No "self" rule on `cstam-team`: Neutron drops team-to-team traffic, even inside the subnet.
@@ -166,7 +167,7 @@ local demo run with memory, CPU and pid limits, `no-new-privileges` and all capa
 | No IP reused while a gateway may still route it | `TestGatewayAckGatesRecycling`, `TestQuarantineSweep` |
 | No invalid name, image or port reaches the cloud | `TestSpecValidate`, `TestValidation`, `TestCreateRejectsInvalidSpec` |
 | Only `cstam-*` resources deleted | `TestDelete`, `Driver.Delete` prefix check |
-| Firewall table | `infra/pulumi/secgroups.go`; on FelCloud: to be shown with a team-to-team `curl` once the floating IPs exist (needs SSH to the VMs) |
+| Firewall table | `infra/pulumi/secgroups.go`, `egress.go`; **measured on FelCloud** with lab VMs (phase2.md, notebook L14): team to team, team to management, team to cp all dropped; gateway to team allowed |
 
 ## 12. Known gaps and next steps
 
@@ -175,7 +176,7 @@ local demo run with memory, CPU and pid limits, `no-new-privileges` and all capa
 | Agents talk to `cpd` in plain HTTP inside the private network | someone already on `cstam-sandbox-net` could read the gateway token | the security groups only let the gateway and host groups reach 8443; mTLS (`internal/pki`) is the Phase 3 step |
 | One gateway token shared by gw1 and gw2 | a compromised gateway could post acks as the other one | per-gateway tokens or mTLS client certificates |
 | Rate-limit counters are per gateway (no `peers` section) | after a failover a flooding client starts from zero on the new MASTER | HAProxy `peers` between gw1 and gw2 |
-| Team egress is open (OpenStack default) | a team can reach the internet and the metadata service (no secrets there) | egress rules on `cstam-team`, or nftables per namespace on Phase 2 hosts |
+| ~~Team egress is open~~ fixed 2026-10-20 | was: a sandbox could reach cp SSH (L14) | `cstam-team` egress only outside 10.20.0.0/24; the internet and metadata stay reachable |
 | No TLS on the public entry yet | team sites are HTTP only | wildcard certificate (bonus, needs DNS from FelCloud) |
 | The local Docker demo has no isolation between team containers | demo only | isolation is enforced by Neutron on FelCloud |
 | gw1 and gw2 run on the same hypervisor (soft anti-affinity) | a hypervisor failure takes both | asked FelCloud; hard anti-affinity failed for lack of hosts |

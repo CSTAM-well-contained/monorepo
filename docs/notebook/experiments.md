@@ -266,6 +266,40 @@ Self-service options checked (none frees a 197.5.133.x address):
   white text on the light accent in dark mode.
 - Cleanup done: demo stack still up; forwarder is a throwaway script outside the repo.
 
+### L14 - Network isolation on FelCloud, before and after team egress rules  (2026-10-20, Emna's PC)
+- No floating IP needed: 3 lab VMs `cstam-lab-iso-{a,b,c}` (Debian 12, G0.basic.1c1g, ports
+  .192-.194 tagged `cstam-lab`); A, B in `cstam-team`, C in `cstam-gw`. A and C probe 10 TCP
+  targets 3 times at boot (bash `/dev/tcp`, 3 s timeout: OPEN / REFUSED / FILTERED=timeout).
+  Files and commands: `deploy/lab/`. Quota checked first: 3 of 10 instances used.
+- `openstack console log show` is **empty on FelCloud** (no serial log kept): the probes write
+  their table into `/etc/issue` and restart tty1; read through noVNC with headless Edge (CDP).
+- Before (cstam-team with OpenStack default egress): A -> B :80/:8000/:22 FILTERED, gw :22/:8404
+  FILTERED, gw :80 REFUSED (public entry, nothing deployed), **cp :22 OPEN**, cp :8443 and :5432
+  FILTERED. C -> B :80 **OPEN**, :8000 REFUSED (gateway group allowed), cp :8443 REFUSED.
+- Cause of cp :22: `cstam-cp` allows 22 from `AdminCIDR` = 0.0.0.0/0 (teammates on changing
+  networks, decision 2026-10-17), and security groups cannot deny a subset.
+- Fix (Pulumi, `infra/pulumi/egress.go`): `cstam-team` recreated with `DeleteDefaultRules` and 24
+  IPv4 egress rules = 0.0.0.0/0 minus 10.20.0.0/24 (+ IPv6 ::/0). `pulumi preview` showed the
+  replacement of cstam-team and its 2 ingress rules only (no port used the group). `pulumi up`
+  stopped at the FIP errors before replacing; `--continue-on-error` did it; a run with
+  `--exclude` FIPs and router updated the outputs. New `teamSecGroupId` 017ad11b-...
+  (cpd's `CSTAM_TEAM_SG_ID` must use it).
+- After: A -> **every internal target FILTERED** (B, gw :22/:8404/:80, cp :22/:8443/:5432);
+  cloud-init still ran (metadata reachable). C unchanged: B :80 OPEN.
+- Cleanup done: yes, 3 servers and 3 ports deleted, `openstack server list` = gw1, gw2, cp.
+
+### L15 - Phase 2 rerun on the local stack  (2026-10-20, Emna's PC, Docker, systemd gateways)
+- `HACK=stress20 demo.sh stress 20`: API answers 254 ms, 20/20 routed, 0 rejected, 20 distinct
+  IPs and slots, own page through the VIP p50 1.9 s, p95 3.1 s.
+- `HACK=stress50 demo.sh stress 50` (24 teams already running): 328 ms, 50/50, p50 4.0 s, p95
+  7.0 s (B5 was 4.9 s on an empty stack). Generation 82 acked by both gateways, no alert.
+- `HACK=stress50 demo.sh teardown`: 50 deleted in 6.9 s, IPs free at 63.0 s; stress20: 3.7 s / 61.2 s.
+  0 routes left, deleted subdomain 404, 0 leftover containers.
+- Lease expiry: hackathon `lease30` (30 s), 3 teams: at expiry the IPs were quarantined and the
+  routes removed (200 -> 404), teams deleted 1 s later, no action from anyone.
+- `TestGatewayGuards` (real HAProxy): pass.
+- Cleanup done: stress hackathons ended; demo stack still up.
+
 ## Decisions log
 | Date | Decision | Based on | Alternatives rejected |
 |---|---|---|---|
@@ -279,3 +313,4 @@ Self-service options checked (none frees a 197.5.133.x address):
 | 2026-10-19 | gwagent `-bootstrap -vrrp-iface` also renders keepalived.conf and the VRRP scripts | one source of truth for the IP plan (gw1 prio 150) | hand-written keepalived.conf in cloud-init |
 | 2026-10-20 | Planned failover: cpd publishes `force_backup`, the agent writes keepalived's track file; refused without a healthy in-sync peer | guide ch. 21 section 12.6, L10 | SSH to the gateway, killing a process |
 | 2026-10-20 | Dashboard in plain HTML/JS embedded in cpd, polling the REST API | no Node on the machines, metered network, one binary | React + Vite (guide ch. 21), htmx (extra download) |
+| 2026-10-20 | `cstam-team` without default egress: allow 0.0.0.0/0 minus 10.20.0.0/24 | L14 (cp SSH reachable from a sandbox) | restrict AdminCIDR (teammates move), nftables on cp (VM unreachable now) |

@@ -1,0 +1,20 @@
+#cloud-config
+# CSTAM isolation lab target: a team-like VM serving a page on port 80 (same as a team sandbox).
+write_files:
+  - path: /srv/cstam/index.html
+    content: |
+      lab target b
+  - path: /etc/systemd/system/cstam-app.service
+    content: |
+      [Unit]
+      Description=lab page
+      After=network-online.target
+      [Service]
+      ExecStart=/usr/bin/python3 -m http.server 80 --directory /srv/cstam
+      Restart=always
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, --now, cstam-app.service]
+  - [bash, -c, "echo CSTAMPROBE target up | tee /dev/ttyS0 /dev/console"]

@@ -10,6 +10,7 @@ working notes are elsewhere: [HANDOFF](../HANDOFF.md), [lab notebook](../noteboo
 | [api.md](api.md) | REST API reference, client integration guide, OpenStack API integration |
 | [openapi.yaml](openapi.yaml) | OpenAPI 3.1 spec of the REST API (checked against the code by a test) |
 | [security.md](security.md) | Threat model, trust boundaries, firewall table, gateway and API protections, secrets, verification, known gaps |
+| [phase2.md](phase2.md) | Phase 2 validation: stress, teardown, isolation measured on FelCloud |
 | [dashboard.md](dashboard.md) | Admin dashboard: pages, manual controls, security |
 | [benchmark.md](benchmark.md) | Measured results: reload, rollback, failover (also under load), provisioning, stress test, HTTP load test, IP recycling |
 
@@ -23,7 +24,7 @@ working notes are elsewhere: [HANDOFF](../HANDOFF.md), [lab notebook](../noteboo
 | Zero-downtime reload, validation, sub-second rollback (10) | `internal/gw/applier`: render -> `haproxy -c` -> atomic swap -> master-CLI reload -> verify -> rollback | B1 |
 | Stress test, 10+ simultaneous teams (Phase 2, 15) | `deploy/dev/demo.sh stress N` | B5 |
 | Automated teardown (Phase 2, 10) | reconciler: lease expiry, hackathon end, failed-team cleanup, IP sweep | B7 |
-| Network isolation (Phase 2, 5) | Neutron security group `cstam-team`: only the gateways reach team ports; `/__gw` hidden from outside; per-team rate limit | security.md, B8 |
+| Network isolation (Phase 2, 5) | Neutron security group `cstam-team`: only the gateways reach team ports, and teams cannot open connections into the subnet (cp, gateways, other teams); `/__gw` hidden from outside; per-team rate limit | phase2.md, B9 (measured on FelCloud), B8 |
 | Admin dashboard (Phase 3, 10) | `web/` (plain HTML/JS embedded in `cpd`, served at `/`): teams and private IPs, gateway MASTER/BACKUP live with alerts, subdomains, live traffic log, IP pool grid, config versions; buttons for spin-up, teardown, lease extension, planned failover/failback, config push and rollback. Every value and rule comes from the API | dashboard.md, notebook L10-L13 |
 | Benchmark report (deliverable) | provisioning latency B4/B5, failover B6/B8, IP recycling B7, load test B8 | benchmark.md |
 | API and security documentation (deliverable) | REST + OpenStack integration, OpenAPI spec, security architecture | api.md, openapi.yaml, security.md |

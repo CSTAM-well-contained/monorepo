@@ -48,6 +48,9 @@ builds on Phase 1, so Phase 1 comes first.
 | Automated IPAM and reclamation, short leases | 10 | **done, tested**: IPAM wired into cpd (lease expiry, ack-gated recycling) |
 | API-triggered OpenStack sandbox provisioning | 15 | **done**: REST API `cpd` + VM driver tested on FelCloud; full run on FelCloud waits for floating IPs |
 | Deliverables: code, architecture/data-flow diagram, demo video | | **official docs in `docs/official/`** (Task F); local demo stack (`deploy/dev/demo.sh`, Task E); video recording missing |
+| Phase 2: stress test 10+ teams | 15 | **validated 2026-10-20** (`docs/official/phase2.md`): 20/20 and 50/50 routed, 0 errors |
+| Phase 2: automated teardown, lifecycle | 10 | **validated**: hackathon end and lease expiry purge sandbox, routes, IPs (free at 63 s) |
+| Phase 2: network isolation | 5 | **validated on FelCloud** with lab VMs (notebook L14); found and fixed cp SSH reachable from sandboxes (team egress rules) |
 | Phase 3: admin dashboard | 10 | **done, tested in a browser** (Task J): served by cpd at `/`, every brief item and the 4 manual controls (spin-up, teardown, planned failover, config rollback) |
 
 ### What exists and is tested
@@ -286,6 +289,17 @@ the API (gateway `alive`/`in_sync`, `alerts`), never in the browser. Slices:
    dashboard (script in `docs/official/dashboard.md` order: overview, spin-up, traffic, planned
    failover, config broken -> rolled back -> manual rollback, teardown and IP grid); TLS or an
    SSH tunnel for the dashboard on FelCloud (cpd is plain HTTP).
+
+### Task K: Phase 2 validation: DONE (2026-10-20)
+Report for the jury: `docs/official/phase2.md` (requirements -> command -> measured result).
+- Stress and teardown on the local stack (notebook L15), isolation **on FelCloud without floating
+  IPs**: lab VMs print their probe results on the login screen, read with noVNC (`deploy/lab/`,
+  notebook L14). FelCloud keeps no serial console log.
+- Infra change applied with Pulumi: `cstam-team` was **replaced** (now no default egress, allowed
+  egress = 0.0.0.0/0 minus 10.20.0.0/24). New ID in `pulumi stack output teamSecGroupId`
+  (017ad11b-...): use it for `CSTAM_TEAM_SG_ID` in cpd.env.
+- Pulumi note: while the floating IPs fail, `pulumi up` stops at them. Use
+  `pulumi up --exclude "**FloatingIp**" --exclude "**Router::cstam-router"` for other changes.
 
 ## 6. Good to know
 - Guide errata found by testing, already fixed in ch. 12: keepalived 2.3 refuses `delay 0` in

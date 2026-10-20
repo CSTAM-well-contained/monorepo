@@ -23,6 +23,9 @@ adds the virtual-port rebinding time (expected 10-300 ms), to be measured there.
 | B8 | HTTP load through the VIP, 20 teams | **3,000 req/s, 0 errors, 0 misrouted, p99 1.2-1.6 ms** (new connection per request: p99 4.5 ms) | load test metrics |
 | B8 | Failover **under that load** | longest time without any successful answer: frozen master **1.51 s**; HAProxy killed **1.9 s** (plain), **0.46-0.69 s** (systemd); 0 misrouted | seamless |
 | B8 | One team flooded (~79,000 req/s) | 99.9 % answered 429; the 19 other teams: **0 errors, p99 3.7 ms** | isolation |
+| B5 | Rerun 2026-10-20: 20 and 50 at once | 20/20 p95 3.1 s; 50/50 p95 7.0 s with 24 teams already up; 0 errors | 10+ teams, error-free |
+| B7 | Lease expiry, nobody acting | at the expiry second: route removed (404), IP quarantined, sandbox deleted 1 s later | automated teardown |
+| B9 | Network isolation **on FelCloud** (lab VMs) | team to team, team to gateway management and to cp: **all dropped**; gateway to team: open | network isolation |
 
 ## Reproduce everything
 ```bash
@@ -126,6 +129,11 @@ Capacity note: the gateway itself answered ~95,000 req/s of 429s on the laptop; 
 per team is capped on purpose at 200 req/s (`-rate-limit 2000` per 10 s), so the aggregate ceiling
 grows with the number of teams. The counters are per gateway: after a failover a flooding client
 starts from zero on the new MASTER (security.md, known gaps).
+
+## B9 - Network isolation on FelCloud
+Lab VMs on the real Neutron, results on their noVNC screen (phase2.md, L14). From a team port
+every internal target times out (dropped), including the control plane's SSH after the
+`cstam-team` egress fix; from a gateway-group port the team page answers.
 
 ## B7 - Teardown and IP recycling
 `deploy/dev/demo.sh teardown` after B5 (L6, L7). 50 teams: routes removed at once, all sandboxes

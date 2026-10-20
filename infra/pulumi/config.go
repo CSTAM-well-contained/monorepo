@@ -14,15 +14,16 @@ import (
 // Topology is the fixed IP plan of cstam-sandbox-net (see the guide, chapter 1.4).
 // It must stay identical to internal/config/topology.go in the main module.
 type Topology struct {
-	RouterIP, CPIP, VIPIP, GW1IP, GW2IP string
+	SubnetCIDR, RouterIP, CPIP, VIPIP, GW1IP, GW2IP string
 }
 
 var topo = Topology{
-	RouterIP: "10.20.0.1",
-	CPIP:     "10.20.0.5",
-	VIPIP:    "10.20.0.10",
-	GW1IP:    "10.20.0.11",
-	GW2IP:    "10.20.0.12",
+	SubnetCIDR: "10.20.0.0/24",
+	RouterIP:   "10.20.0.1",
+	CPIP:       "10.20.0.5",
+	VIPIP:      "10.20.0.10",
+	GW1IP:      "10.20.0.11",
+	GW2IP:      "10.20.0.12",
 }
 
 // Settings are the per-stack values from Pulumi.<stack>.yaml.
