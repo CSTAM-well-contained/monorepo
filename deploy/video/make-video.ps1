@@ -4,7 +4,7 @@ make-video.ps1: records the Phase 2 video (MP4, 1080p) with no screen recorder a
   - deploy/dev/video.sh runs the real demo in WSL; this script paces it (VIDEO_GATE/VIDEO_MARK);
   - headless Edge (DevTools protocol) shows the live dashboard; every frame is the stage page
     (stage.html: terminal + dashboard + subtitles) captured at -Fps;
-  - Windows text-to-speech reads the narration of each scene;
+  - an Edge natural voice (voice.js, online like Edge "Read aloud") or the Windows voice reads the narration;
   - Windows.Media.Editing (the engine of the Photos app) encodes frames + voice to MP4.
 
 Before: in WSL, `QUARANTINE=10s GW_MODE=systemd deploy/dev/demo.sh up` and `deploy/dev/demo.sh teams 3`.
@@ -16,7 +16,11 @@ param(
   [string]$User = "lenovo",
   [string]$Out = "$env:USERPROFILE\Videos\CSTAM-phase2-demo.mp4",
   [double]$Fps = 2,
-  [int]$VoiceRate = 1,
+  # Edge natural voice (online, as in Edge "Read aloud"): "Ava Multilingual", "Andrew Multilingual",
+  # "Emma Multilingual", "Brian Multilingual", "Jenny", "Guy", "Aria"...; "" = offline Windows voice
+  [string]$Voice = "Ava Multilingual",
+  [double]$SpeechRate = 1.05,
+  [int]$VoiceRate = 1,            # offline Windows voice only
   [int]$Bitrate = 4000000
 )
 $ErrorActionPreference = "Stop"
@@ -46,7 +50,6 @@ $scenes = @(
   @{ label = "4/4  Benchmark report"; tab = "overview"; text = "The benchmark report has all the numbers: provisioning latency, failover in 0.3 seconds when planned and under two seconds on a crash, IP recycling, and three thousand requests per second with zero errors. The code, the benchmark report, and the security documentation are in our repository. Thank you." }
 )
 
-Log "narration (text to speech)"
 $rateHz = 22050
 $fmt = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo($rateHz, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)
 function PcmOf($wav) { # the data chunk of a WAV file
@@ -58,15 +61,33 @@ function PcmOf($wav) { # the data chunk of a WAV file
   }
   throw "no data chunk in $wav"
 }
-for ($k = 0; $k -lt $scenes.Count; $k++) {
-  $tts = New-Object System.Speech.Synthesis.SpeechSynthesizer
-  $v = $tts.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Culture.Name -like "en-*" } | Select-Object -First 1
-  if ($v) { $tts.SelectVoice($v.VoiceInfo.Name) }
-  $tts.Rate = $VoiceRate
-  $tts.SetOutputToWaveFile("$work\voice$k.wav", $fmt); $tts.Speak($scenes[$k].text); $tts.Dispose()
-  $scenes[$k].pcm = PcmOf "$work\voice$k.wav"
-  $scenes[$k].secs = $scenes[$k].pcm.Length / (2.0 * $rateHz)
-  Log ("  scene {0}: {1:N1} s" -f $k, $scenes[$k].secs)
+function OfflineVoice() { # Windows SAPI voice (robotic, always available)
+  for ($k = 0; $k -lt $scenes.Count; $k++) {
+    $tts = New-Object System.Speech.Synthesis.SpeechSynthesizer
+    $v = $tts.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Culture.Name -like "en-*" } | Select-Object -First 1
+    if ($v) { $tts.SelectVoice($v.VoiceInfo.Name) }
+    $tts.Rate = $VoiceRate
+    $tts.SetOutputToWaveFile("$work\voice$k.wav", $fmt); $tts.Speak($scenes[$k].text); $tts.Dispose()
+    $scenes[$k].pcm = PcmOf "$work\voice$k.wav"
+  }
+}
+function NaturalVoice() { # Edge online natural voice, captured from the tab
+  $vid = (Send $browser "Target.createTarget" @{ url = "about:blank"; newWindow = $true }).targetId
+  $vs = Connect ((Invoke-RestMethod "http://127.0.0.1:$port/json") | Where-Object { $_.id -eq $vid }).webSocketDebuggerUrl
+  [void](Send $vs "Page.navigate" @{ url = "http://localhost:8443/" }) # a secure context for tab capture
+  Start-Sleep -Seconds 2
+  $code = [IO.File]::ReadAllText("$repo\deploy\video\voice.js")
+  [void](Send $vs "Runtime.evaluate" @{ expression = $code })
+  $init = (Send $vs "Runtime.evaluate" @{ expression = "__voiceInit('$Voice')"; awaitPromise = $true; returnByValue = $true }).result.value
+  if ($init -notlike "ok *") { throw "natural voice: $init" }
+  Log "  $init"
+  for ($k = 0; $k -lt $scenes.Count; $k++) {
+    $text = $scenes[$k].text | ConvertTo-Json
+    $r = Send $vs "Runtime.evaluate" @{ expression = "__say($text, $SpeechRate)"; awaitPromise = $true; returnByValue = $true }
+    if ($r.exceptionDetails) { throw "natural voice, scene ${k}: $($r.exceptionDetails.exception.description)" }
+    $scenes[$k].pcm = [Convert]::FromBase64String($r.result.value)
+  }
+  [void](Send $browser "Target.closeTarget" @{ targetId = $vid })
 }
 
 # ---------------------------------------------------------------- headless Edge
@@ -75,7 +96,8 @@ if (-not (Test-Path $edge)) { $edge = "$env:ProgramFiles\Microsoft\Edge\Applicat
 $port = 9341
 $edgeProc = Start-Process $edge -PassThru -ArgumentList "--headless=new", "--remote-debugging-port=$port",
   "--user-data-dir=$work\edge", "--window-size=1920,1080", "--hide-scrollbars", "--force-device-scale-factor=1",
-  "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows", "about:blank"
+  "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows",
+  "--autoplay-policy=no-user-gesture-required", "--auto-accept-this-tab-capture", "--use-fake-ui-for-media-stream", "about:blank"
 $script:ids = @{}
 function Connect($wsUrl) {
   $ws = New-Object System.Net.WebSockets.ClientWebSocket
@@ -120,6 +142,17 @@ try {
   Start-Sleep -Seconds 3
   $hidden = (Send $dash "Runtime.evaluate" @{ expression = "document.hidden"; returnByValue = $true }).result.value
   Log "dashboard ready (document.hidden=$hidden)"
+
+  Log "narration"
+  $natural = $false
+  if ($Voice) {
+    try { NaturalVoice; $natural = $true } catch { Log "  natural voice unavailable ($($_.Exception.Message)), using the Windows voice" }
+  }
+  if (-not $natural) { OfflineVoice }
+  for ($k = 0; $k -lt $scenes.Count; $k++) {
+    $scenes[$k].secs = $scenes[$k].pcm.Length / (2.0 * $rateHz)
+    Log ("  scene {0}: {1:N1} s" -f $k, $scenes[$k].secs)
+  }
   function Tab($name) { if ($name) { [void](Send $dash "Runtime.evaluate" @{ expression = "document.querySelector('button[data-tab=$name]').click(); window.scrollTo(0,0); 1" }) } }
 
   # ---------------------------------------------------------------- the demo, paced by us

@@ -3,7 +3,7 @@
 **Automatic version (used for the submission, 2:31, 1080p):** `deploy/video/make-video.ps1`
 records it with no screen recorder: it runs `deploy/dev/video.sh` on the real platform, captures
 the live dashboard with headless Edge, composes each frame (terminal, dashboard, subtitles,
-`deploy/video/stage.html`), reads the narration with Windows text-to-speech and encodes the MP4
+`deploy/video/stage.html`), reads the narration with a natural voice (Edge online voices, default `-Voice "Ava Multilingual"`; the offline Windows voice is the fallback) and encodes the MP4
 with Windows' own video engine. On Windows, after `QUARANTINE=10s GW_MODE=systemd
 deploy/dev/demo.sh up` and `deploy/dev/demo.sh teams 3` in WSL:
 ```powershell

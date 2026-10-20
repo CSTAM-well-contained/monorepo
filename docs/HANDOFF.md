@@ -310,7 +310,7 @@ SwissTransfer, 30-day link (**Emna does the upload**).
   security.md + architecture.md). Made by rendering the markdown with GitHub (`gh api markdown`)
   and printing with headless Edge; regenerate them after changing those docs.
 - **Video made automatically** (2:31, 1080p, voice + subtitles): `deploy/video/make-video.ps1`
-  (headless Edge frames + Windows text-to-speech + Windows.Media.Editing encoder, no download).
+  (headless Edge frames, Edge natural voice "Ava Multilingual" captured from the tab, Windows.Media.Editing encoder, no download).
   File given to Emna: `Downloads\to-emna\phase2-submission\CSTAM-phase2-demo.mp4`.
 - Video by hand: `deploy/dev/video.sh` plays the whole Phase 2 demo with captions (about 70 s of action,
   Enter between steps); storyboard and narration in `docs/official/video-script.md`. Start the
