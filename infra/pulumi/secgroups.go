@@ -57,7 +57,7 @@ func newSecGroups(ctx *pulumi.Context, s Settings) (*SecGroups, error) {
 	}
 
 	// The whole firewall policy of the platform, in one table. Note what is NOT here:
-	//  - no rule opens a port on an agent: agents dial out to cpd on 8443;
+	//  - no rule opens a port on an agent: agents dial out to cpd on 8443 (config.CPDPort);
 	//  - no "self" rule on cstam-team: Neutron itself drops team-to-team traffic;
 	//  - cstam-host is never a remote group (in AAP mode team IPs are members of it).
 	rules := []rule{

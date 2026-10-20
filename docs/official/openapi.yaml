@@ -1,0 +1,293 @@
+openapi: 3.1.0
+info:
+  title: CSTAM cpd API
+  version: "1"
+  description: |
+    Control plane of the CSTAM Resilient IP Optimizer. Human reference: api.md.
+    internal/api/api_test.go checks that every route of the server is listed here.
+servers:
+  - url: http://10.20.0.5:8443
+    description: FelCloud (cstam-cp; only the gateway and host security groups reach this port)
+  - url: http://10.20.0.1:8443
+    description: local demo (deploy/dev/demo.sh)
+security:
+  - admin: []
+tags:
+  - name: hackathons
+  - name: teams
+  - name: status
+  - name: gateways
+    description: used by gwagent, gateway token only
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness, no token
+      security: []
+      responses:
+        "200":
+          description: alive
+          content:
+            application/json:
+              schema: {type: object, properties: {status: {type: string, const: ok}}}
+
+  /v1/hackathons:
+    post:
+      tags: [hackathons]
+      summary: Create a hackathon
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/HackathonIn"}
+      responses:
+        "201": {description: created, content: {application/json: {schema: {$ref: "#/components/schemas/Hackathon"}}}}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "415": {$ref: "#/components/responses/UnsupportedMediaType"}
+    get:
+      tags: [hackathons]
+      summary: List hackathons
+      responses:
+        "200": {description: all hackathons, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/Hackathon"}}}}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /v1/hackathons/{h}:
+    parameters: [{$ref: "#/components/parameters/Hackathon"}]
+    get:
+      tags: [hackathons]
+      summary: Get a hackathon
+      responses:
+        "200": {description: the hackathon, content: {application/json: {schema: {$ref: "#/components/schemas/Hackathon"}}}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    delete:
+      tags: [hackathons]
+      summary: End a hackathon (every team is torn down; the name stays taken)
+      responses:
+        "202": {description: teardown started, content: {application/json: {schema: {$ref: "#/components/schemas/Hackathon"}}}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /v1/hackathons/{h}/teams:
+    parameters: [{$ref: "#/components/parameters/Hackathon"}]
+    post:
+      tags: [teams]
+      summary: Register a team (IP and slot allocated now, sandbox created asynchronously)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/TeamIn"}
+      responses:
+        "202":
+          description: accepted, state provisioning
+          headers:
+            Location: {schema: {type: string, example: /v1/teams/12}}
+          content: {application/json: {schema: {$ref: "#/components/schemas/Team"}}}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "415": {$ref: "#/components/responses/UnsupportedMediaType"}
+        "503": {$ref: "#/components/responses/PoolExhausted"}
+    get:
+      tags: [teams]
+      summary: List the teams of a hackathon
+      responses:
+        "200": {description: teams, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/Team"}}}}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /v1/teams/{id}:
+    parameters: [{$ref: "#/components/parameters/TeamID"}]
+    get:
+      tags: [teams]
+      summary: Get a team
+      responses:
+        "200": {description: the team, content: {application/json: {schema: {$ref: "#/components/schemas/Team"}}}}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    delete:
+      tags: [teams]
+      summary: Tear a team down
+      responses:
+        "202": {description: teardown started, content: {application/json: {schema: {$ref: "#/components/schemas/Team"}}}}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /v1/teams/{id}/renew:
+    parameters: [{$ref: "#/components/parameters/TeamID"}]
+    post:
+      tags: [teams]
+      summary: Extend the lease to now + the hackathon's lease_ttl_seconds
+      responses:
+        "200":
+          description: new expiry
+          content:
+            application/json:
+              schema: {type: object, required: [lease_expires_at], properties: {lease_expires_at: {type: string, format: date-time}}}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
+  /v1/status:
+    get:
+      tags: [status]
+      summary: Routes generation, IP pool, team states, gateways
+      responses:
+        "200": {description: status, content: {application/json: {schema: {$ref: "#/components/schemas/Status"}}}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /v1/gateways/{gw}/desired:
+    parameters: [{$ref: "#/components/parameters/Gateway"}]
+    get:
+      tags: [gateways]
+      summary: Long-poll the desired routes
+      security: [{gateway: []}]
+      parameters:
+        - {name: after, in: query, schema: {type: integer, minimum: 0}, description: "generation the gateway serves; without it the answer is immediate"}
+        - {name: wait, in: query, schema: {type: string, example: 25s}, description: "Go duration, at most 25s"}
+      responses:
+        "200": {description: whole route table of one generation, content: {application/json: {schema: {$ref: "#/components/schemas/Desired"}}}}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /v1/gateways/{gw}/ack:
+    parameters: [{$ref: "#/components/parameters/Gateway"}]
+    post:
+      tags: [gateways]
+      summary: Report the generation, config version and VRRP state a gateway serves
+      security: [{gateway: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/Ack"}
+      responses:
+        "200":
+          description: recorded
+          content:
+            application/json:
+              schema: {type: object, properties: {acked_generation: {type: integer}}}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "409": {description: generation ahead of the database (refused so the IP sweep cannot run early), content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "415": {$ref: "#/components/responses/UnsupportedMediaType"}
+
+components:
+  securitySchemes:
+    admin: {type: http, scheme: bearer, description: CSTAM_ADMIN_TOKEN (at least 16 characters)}
+    gateway: {type: http, scheme: bearer, description: CSTAM_GATEWAY_TOKEN, different from the admin token}
+
+  parameters:
+    Hackathon: {name: h, in: path, required: true, schema: {$ref: "#/components/schemas/Label"}}
+    TeamID: {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+    Gateway: {name: gw, in: path, required: true, schema: {$ref: "#/components/schemas/Label"}, example: gw1}
+
+  responses:
+    BadRequest: {description: invalid name, domain, port, image, JSON or parameter, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+    Unauthorized: {description: missing or wrong bearer token, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+    NotFound: {description: unknown hackathon or team, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+    Conflict: {description: name already used, hackathon not active, or lease already expired, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+    UnsupportedMediaType: {description: body is not application/json, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+    PoolExhausted:
+      description: no free team IP or routing slot
+      headers:
+        Retry-After: {schema: {type: integer, example: 60}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}
+
+  schemas:
+    Label:
+      type: string
+      pattern: "^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$"
+      description: DNS label, also used in OpenStack, Docker and HAProxy names
+    Error:
+      type: object
+      required: [error]
+      properties: {error: {type: string}}
+    HackathonIn:
+      type: object
+      additionalProperties: false
+      required: [name, domain]
+      properties:
+        name: {$ref: "#/components/schemas/Label"}
+        domain: {type: string, example: hack1.cstam.felcloud.tn, description: "teams are published at <team>.<domain>"}
+        lease_ttl_seconds: {type: integer, minimum: 0, maximum: 2592000, default: 7200}
+    Hackathon:
+      type: object
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        domain: {type: string}
+        state: {type: string, enum: [active, ended]}
+        lease_ttl_seconds: {type: integer}
+        created_at: {type: string, format: date-time}
+    TeamIn:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: {$ref: "#/components/schemas/Label"}
+        app_port:
+          type: integer
+          default: 80
+          description: "80 or 8000-8099: the ports the cstam-team security group opens to the gateways"
+        image: {type: string, maxLength: 255, description: "container image; empty = default page with the team name and IP"}
+    Team:
+      type: object
+      properties:
+        id: {type: integer}
+        hackathon: {type: string}
+        name: {type: string}
+        fqdn: {type: string, example: team5.hack1.cstam.felcloud.tn}
+        state: {type: string, enum: [provisioning, ready, failed, deleting, deleted]}
+        ip: {type: string, example: 10.20.0.36}
+        slot: {type: integer, minimum: 1, maximum: 128}
+        app_port: {type: integer}
+        image: {type: string}
+        lease_expires_at: {type: string, format: date-time}
+        error: {type: string, description: "why the team failed"}
+        created_at: {type: string, format: date-time}
+    Gateway:
+      type: object
+      properties:
+        name: {type: string}
+        acked_generation: {type: integer}
+        config_version: {type: string}
+        vrrp_state: {type: string, enum: [MASTER, BACKUP, FAULT, STOP, ""]}
+        vrrp_since: {type: string, format: date-time}
+        last_seen: {type: string, format: date-time}
+    Status:
+      type: object
+      properties:
+        generation: {type: integer}
+        ip_pool: {type: object, additionalProperties: {type: integer}, description: "count per IP state: free, allocated, quarantine, reserved"}
+        teams: {type: object, additionalProperties: {type: integer}, description: count per team state}
+        gateways: {type: array, items: {$ref: "#/components/schemas/Gateway"}}
+    Route:
+      type: object
+      properties:
+        host: {type: string}
+        slot: {type: integer}
+        addr: {type: string}
+        port: {type: integer}
+    Desired:
+      type: object
+      properties:
+        generation: {type: integer}
+        routes: {type: array, items: {$ref: "#/components/schemas/Route"}}
+    Ack:
+      type: object
+      additionalProperties: false
+      required: [generation]
+      properties:
+        generation: {type: integer}
+        config_version: {type: string}
+        vrrp_state: {type: string, enum: [MASTER, BACKUP, FAULT, STOP, ""]}

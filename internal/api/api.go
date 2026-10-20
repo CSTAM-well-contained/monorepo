@@ -48,27 +48,55 @@ type Server struct {
 	Log          *slog.Logger
 }
 
+// token says which bearer token a route needs.
+type token int
+
+const (
+	public token = iota
+	adminOnly
+	gatewayOnly
+)
+
+type route struct {
+	pattern string // "METHOD /path"
+	token   token
+	h       http.HandlerFunc
+}
+
+// routes is the whole API. docs/official/openapi.yaml must list every one (tested).
+func (s *Server) routes() []route {
+	return []route{
+		{"GET /healthz", public, func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		}},
+		{"POST /v1/hackathons", adminOnly, s.createHackathon},
+		{"GET /v1/hackathons", adminOnly, s.listHackathons},
+		{"GET /v1/hackathons/{h}", adminOnly, s.getHackathon},
+		{"DELETE /v1/hackathons/{h}", adminOnly, s.endHackathon},
+		{"POST /v1/hackathons/{h}/teams", adminOnly, s.createTeam},
+		{"GET /v1/hackathons/{h}/teams", adminOnly, s.listTeams},
+		{"GET /v1/teams/{id}", adminOnly, s.getTeam},
+		{"POST /v1/teams/{id}/renew", adminOnly, s.renewTeam},
+		{"DELETE /v1/teams/{id}", adminOnly, s.deleteTeam},
+		{"GET /v1/status", adminOnly, s.status},
+		{"GET /v1/gateways/{gw}/desired", gatewayOnly, s.desired},
+		{"POST /v1/gateways/{gw}/ack", gatewayOnly, s.ack},
+	}
+}
+
 // Handler returns the routes of the API.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	admin := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, s.auth(s.AdminToken, h)) }
-	gw := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, s.auth(s.GatewayToken, h)) }
-
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
-	admin("POST /v1/hackathons", s.createHackathon)
-	admin("GET /v1/hackathons", s.listHackathons)
-	admin("GET /v1/hackathons/{h}", s.getHackathon)
-	admin("DELETE /v1/hackathons/{h}", s.endHackathon)
-	admin("POST /v1/hackathons/{h}/teams", s.createTeam)
-	admin("GET /v1/hackathons/{h}/teams", s.listTeams)
-	admin("GET /v1/teams/{id}", s.getTeam)
-	admin("POST /v1/teams/{id}/renew", s.renewTeam)
-	admin("DELETE /v1/teams/{id}", s.deleteTeam)
-	admin("GET /v1/status", s.status)
-	gw("GET /v1/gateways/{gw}/desired", s.desired)
-	gw("POST /v1/gateways/{gw}/ack", s.ack)
+	for _, r := range s.routes() {
+		switch r.token {
+		case adminOnly:
+			mux.Handle(r.pattern, s.auth(s.AdminToken, r.h))
+		case gatewayOnly:
+			mux.Handle(r.pattern, s.auth(s.GatewayToken, r.h))
+		default:
+			mux.Handle(r.pattern, r.h)
+		}
+	}
 	return mux
 }
 

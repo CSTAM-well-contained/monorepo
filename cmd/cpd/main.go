@@ -21,10 +21,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/CSTAM-well-contained/monorepo/internal/api"
+	"github.com/CSTAM-well-contained/monorepo/internal/config"
 	"github.com/CSTAM-well-contained/monorepo/internal/docker"
 	"github.com/CSTAM-well-contained/monorepo/internal/ipam"
 	"github.com/CSTAM-well-contained/monorepo/internal/lifecycle"
@@ -37,7 +39,7 @@ var version = "dev" // set by -ldflags "-X main.version=..."
 
 func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
-	listen := flag.String("listen", ":8080", "address of the REST API")
+	listen := flag.String("listen", ":"+strconv.Itoa(config.CPDPort), "address of the REST API")
 	workers := flag.Int("workers", 4, "sandbox operations in flight")
 	every := flag.Duration("reconcile", 2*time.Second, "reconciler interval")
 	flag.Parse()

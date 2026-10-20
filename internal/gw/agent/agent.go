@@ -40,7 +40,7 @@ type Applier interface {
 // Config of the agent.
 type Config struct {
 	Name      string // gw1 or gw2
-	CPD       string // base URL of cpd, e.g. http://10.20.0.5:8080
+	CPD       string // base URL of cpd, e.g. http://10.20.0.5:8443
 	Token     string // gateway bearer token
 	RunDir    string // holds ready and vrrp.state (/run/cstam)
 	StateFile string // last applied routes, survives restarts (/var/lib/cstam/desired.json)

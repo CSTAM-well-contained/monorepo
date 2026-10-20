@@ -20,6 +20,22 @@ adds the virtual-port rebinding time (expected 10-300 ms), to be measured there.
 | B5 | 50 simultaneous registrations | **50/50 routed, p50 3.4 s, p95 4.9 s**, 0 errors, 50 distinct IPs and slots | 10+ teams, error-free |
 | B6 | Gateway failover (takeover through the VIP) | **1.3-1.9 s** frozen master, 0.2 s clean stop; HAProxy killed: **0.45-0.61 s** (systemd restarts it, no failover needed) | seamless |
 | B7 | Teardown of 50 teams | sandboxes and routes gone in **7 s**; IPs back in the pool at **63 s** (60 s quarantine by design) | immediate release |
+| B8 | HTTP load through the VIP, 20 teams | **3,000 req/s, 0 errors, 0 misrouted, p99 1.2-1.6 ms** (new connection per request: p99 4.5 ms) | load test metrics |
+| B8 | Failover **under that load** | longest time without any successful answer: frozen master **1.51 s**; HAProxy killed **1.9 s** (plain), **0.46-0.69 s** (systemd); 0 misrouted | seamless |
+| B8 | One team flooded (~79,000 req/s) | 99.9 % answered 429; the 19 other teams: **0 errors, p99 3.7 ms** | isolation |
+
+## Reproduce everything
+```bash
+make build
+deploy/dev/demo.sh up                     # GW_MODE=systemd for the systemd gateways (L8)
+deploy/dev/demo.sh teams 20
+deploy/dev/demo.sh load 20 64             # B8 steady load
+TIMEOUT=0.3s deploy/dev/demo.sh load 12 64 pause   # B8 failover under load (or kill)
+CPD_WORKERS=16 HACK=s50 deploy/dev/demo.sh stress 50   # B5
+deploy/dev/demo.sh failover pause         # B6
+deploy/dev/demo.sh teardown               # B7
+deploy/dev/demo.sh reload                 # B1
+```
 
 ## B1 - Zero-downtime reload and rollback
 `go test -tags integration -v -run 'TestBrokenConfigRollsBack|TestReloadDropsNoRequest' ./internal/gw/applier/`
@@ -71,6 +87,45 @@ rest is sandbox creation, bounded by `-workers`. Route propagation itself is mil
 
 On the VMs, `vrrp_track_process` should bring the HAProxy-killed case under 1 s (cannot be measured
 in containers).
+
+## B8 - HTTP load test through the gateways
+`deploy/dev/demo.sh load [SECONDS] [WORKERS] [pause|kill]`, which runs `cstamctl load` (notebook L9).
+The load tool sends `GET /` to the VIP with each team's `Host` in turn, at a fixed total rate
+(`RATE`, default 150 req/s per team, under the 200 req/s per-team limit), and checks that every
+200 is **the page of the requested team** (a wrong team's page counts as misrouted). With `pause`
+or `kill` the MASTER is broken 5 s into the run. "Longest time without a successful answer" is the
+outage a client sees, measured from the answers themselves, so it also counts requests that hang
+on a frozen gateway (with `TIMEOUT=0.3s`, like a client that retries quickly).
+
+Steady load, 20 teams, 64 workers, 20 s, laptop:
+
+| Connections | Requests | Errors / misrouted | Rate | p50 | p90 | p99 | max |
+|---|---|---|---|---|---|---|---|
+| keep-alive | 60,000 | 0 / 0 | 3,000/s | 0.4 ms | 0.9 ms | 1.6 ms | 6.9 ms |
+| keep-alive, systemd gateways | 29,999 | 0 / 0 | 3,000/s | 0.4 ms | 0.5 ms | 1.2 ms | 8.4 ms |
+| new connection per request | 59,989 | 0 / 0 | 2,999/s | 1.7 ms | 2.6 ms | 4.5 ms | 75.7 ms |
+
+Failover while serving 3,000 req/s (64 workers, 0.3 s request timeout unless noted):
+
+| Failure | Gateways | Longest time without success | Failed requests | Misrouted |
+|---|---|---|---|---|
+| MASTER frozen (`docker pause`) | plain | 1.51, 1.51, 1.51 s | 320 (timeouts) | 0 |
+| MASTER frozen, 2 s timeout | plain | 2.0 s (bounded by the client timeout) | 64 | 0 |
+| HAProxy killed | plain | 1.91 s (2 s timeout: 1.72-1.91 s) | ~4,800 (refused connections) | 0 |
+| HAProxy killed | systemd (`Restart=always`) | **0.46, 0.55, 0.69 s**, no failover | 1,183-1,868 | 0 |
+
+Rate limit and isolation: one client floods team01 with 32 workers and no rate (about 79,000
+req/s, 1.59 M requests in 20 s) while 19 other teams receive 2,850 req/s together:
+
+| Traffic | Result |
+|---|---|
+| Flooded team | 1,968 answered (the first 10 s budget), 1,584,829 refused with 429 |
+| 19 other teams | 42,747 requests, **0 errors**, p50 0.6 ms, p99 3.7 ms, max 15.5 ms |
+
+Capacity note: the gateway itself answered ~95,000 req/s of 429s on the laptop; served traffic
+per team is capped on purpose at 200 req/s (`-rate-limit 2000` per 10 s), so the aggregate ceiling
+grows with the number of teams. The counters are per gateway: after a failover a flooding client
+starts from zero on the new MASTER (security.md, known gaps).
 
 ## B7 - Teardown and IP recycling
 `deploy/dev/demo.sh teardown` after B5 (L6, L7). 50 teams: routes removed at once, all sandboxes

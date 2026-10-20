@@ -52,7 +52,10 @@ func docker(t *testing.T, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func newLab(t *testing.T) *lab {
+func newLab(t *testing.T) *lab { return newLabWith(t, nil) }
+
+// newLabWith lets a test change the settings before HAProxy starts.
+func newLabWith(t *testing.T, mod func(*haproxy.Settings)) *lab {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not installed")
 	}
@@ -71,6 +74,9 @@ func newLab(t *testing.T) *lab {
 		Dir: dir, AdminSocket: filepath.Join(dir, "admin.sock"), SocketMode: "600",
 		HTTPBind: fmt.Sprintf("127.0.0.1:%d", port), CanaryAddr: strings.TrimPrefix(canary.URL, "http://"),
 		InternalSources: []string{"127.0.0.1"}, Slots: 8, RateLimit: 100000,
+	}
+	if mod != nil {
+		mod(&s)
 	}
 	ctr := fmt.Sprintf("cstam-it-hap-%d", time.Now().UnixNano())
 	docker(t, "run", "-d", "--rm", "--name", ctr, "--network", "host",
@@ -163,6 +169,71 @@ func TestRoutesAtRuntime(t *testing.T) {
 	}
 	if code, body, _ := l.get("a.hacka.test"); code != 200 || body != "team-a" {
 		t.Fatalf("a after reload: %d %q", code, body)
+	}
+}
+
+// getFrom sends GET path with Host from a given loopback source address (127.0.0.0/8 all
+// reaches the listener on 127.0.0.1), so a test can play an outside client.
+func (l *lab) getFrom(src, host, path string) (int, string, error) {
+	d := &net.Dialer{LocalAddr: &net.TCPAddr{IP: net.ParseIP(src)}, Timeout: 2 * time.Second}
+	c := &http.Client{Transport: &http.Transport{DialContext: d.DialContext, DisableKeepAlives: true}}
+	req, _ := http.NewRequest(http.MethodGet, l.base+path, nil)
+	req.Host = host
+	resp, err := c.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b), nil
+}
+
+// TestGatewayGuards checks the protections of the public frontend: the management endpoints
+// are invisible from outside, and the per-Host rate limit stops one team's flood without
+// touching the others.
+func TestGatewayGuards(t *testing.T) {
+	const limit = 20 // requests per 10 s per Host
+	l := newLabWith(t, func(s *haproxy.Settings) { s.RateLimit = limit })
+	ctx := context.Background()
+	a, b := teamApp(t, "team-a"), teamApp(t, "team-b")
+	if err := l.app.SyncRoutes(ctx, 1, []haproxy.Route{route("a.hacka.test", 1, a), route("b.hacka.test", 2, b)}); err != nil {
+		t.Fatal(err)
+	}
+
+	// internal source: healthz answers; outside source: 404, same as any unknown path
+	if code, body, err := l.getFrom("127.0.0.1", "x", "/__gw/healthz"); err != nil || code != 200 || !strings.HasPrefix(body, "ok gw1") {
+		t.Fatalf("healthz from inside: %d %q %v", code, body, err)
+	}
+	for _, path := range []string{"/__gw/healthz", "/__gw/", "/__gw/anything"} {
+		if code, body, err := l.getFrom("127.0.0.2", "a.hacka.test", path); err != nil || code != 404 || strings.Contains(body, "gw1") {
+			t.Fatalf("%s from outside: %d %q %v, want a 404 that says nothing", path, code, body, err)
+		}
+	}
+
+	// flood one Host from outside: over the limit it gets 429, the other team still answers
+	var ok, limited int
+	for range 3 * limit {
+		code, _, err := l.getFrom("127.0.0.2", "a.hacka.test", "/")
+		switch {
+		case err != nil:
+			t.Fatal(err)
+		case code == 200:
+			ok++
+		case code == 429:
+			limited++
+		default:
+			t.Fatalf("flood: unexpected %d", code)
+		}
+	}
+	if ok > limit+1 || limited < limit {
+		t.Fatalf("flood of %d requests: %d ok, %d limited; want at most %d ok", 3*limit, ok, limited, limit+1)
+	}
+	if code, body, err := l.getFrom("127.0.0.2", "b.hacka.test", "/"); err != nil || code != 200 || body != "team-b" {
+		t.Fatalf("other team during the flood: %d %q %v", code, body, err)
+	}
+	// the Host header is matched case-insensitively and without the port: no bypass that way
+	if code, _, _ := l.getFrom("127.0.0.2", "A.HACKA.TEST:80", "/"); code != 429 {
+		t.Fatalf("flooded host written differently: %d, want 429", code)
 	}
 }
 

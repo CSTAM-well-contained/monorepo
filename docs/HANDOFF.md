@@ -190,7 +190,7 @@ What exists:
   gateway systemd units too (Task G).
 - `deploy/dev/demo.sh up | teams N | failover pause|kill | reload | teardown | status | down` and
   `deploy/dev/gw-entrypoint.sh`. Plain `docker run` (no compose plugin to download), bridge
-  `cstam-demo` = 10.20.0.0/24 with the host as .1, cpd on 10.20.0.1:8080, gateways .11/.12, VIP .10.
+  `cstam-demo` = 10.20.0.0/24 with the host as .1, cpd on 10.20.0.1:8443, gateways .11/.12, VIP .10.
   `HACK=name demo.sh teams` uses another hackathon (an ended one keeps its name).
 Proof: `go test -tags integration ./internal/docker/` and the run in notebook L6 (team routed
 0.7-2.1 s after the API call, failover 1.3-2.3 s, IPs freed 61 s after teardown and reused).
@@ -212,6 +212,14 @@ unprivileged on the VMs); the docker driver restarts a stopped team container in
 PNG diagrams and says where the built system differs from them), `api.md`, `benchmark.md`
 (B1-B7 from notebook L1-L7, incl. the stress test `demo.sh stress N`: 50 teams p95 4.9 s).
 Keep `benchmark.md` up to date when FelCloud numbers arrive (failover with OVN, VM stress).
+
+### Task I: deliverable docs (benchmark, API integration, security): DONE (2026-10-20)
+For the brief's deliverables "benchmark report" and "API integration and security architecture
+documentation": `cstamctl load` + `demo.sh load` (benchmark B8: steady load, failover under load,
+flood isolation; notebook L9), `docs/official/security.md` (threat model, firewall table, controls
+with their tests, known gaps), `docs/official/openapi.yaml` (tested against the routes), client and
+OpenStack integration sections in `api.md`. Bug fixed on the way: `cpd` now listens on **8443**
+(`config.CPDPort`), the only cp port the security group opens to the agents; it was 8080.
 
 ### Task H: reject app ports the security group blocks: DONE (2026-10-19)
 `cstam-team` only opens TCP 80 and 8000-8099 from the gateways; `CreateTeam` accepted any port, so a

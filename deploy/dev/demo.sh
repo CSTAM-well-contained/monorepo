@@ -10,6 +10,11 @@
 #   demo.sh stress [N]    N registrations at once (default 20): latency p50/p95, distinct IPs
 #   demo.sh failover [pause|kill]
 #                         break the MASTER gateway while probing the VIP every 20 ms
+#   demo.sh load [SECONDS] [WORKERS] [pause|kill]
+#                         HTTP load through the VIP on every ready team (cstamctl load); with
+#                         pause|kill the MASTER is broken 5 s in (RATE=n: total req/s, default
+#                         150 per team, under the 200/s per-Host limit; KEEPALIVE=false;
+#                         TIMEOUT=0.3s: per-request timeout, default 2s)
 #   demo.sh reload        broken HAProxy config -> rollback (applier integration tests)
 #   demo.sh teardown      end the hackathon: team containers removed, IPs quarantined then freed
 #   demo.sh status        cpd status and containers
@@ -22,7 +27,7 @@ source infra/topology.env
 DNET=cstam-demo
 ROUTER="${VIP_IP%.*}.1"         # the Docker bridge plays the router of the subnet
 SUBNET="${VIP_IP%.*}.0/24"
-CPD="http://$ROUTER:8080"
+CPD="http://$ROUTER:8443"
 HACK=${HACK:-demo}              # hackathon name; an ended one keeps its name
 DOMAIN=$HACK.cstam.test
 GW_IMAGE=cstam-lab-gw:test      # same image as the keepalived integration test
@@ -91,7 +96,7 @@ up() {
     ( set -a; . "$STATE/gw.env"; set +a
       CSTAM_DB_DSN=postgres://postgres:demo@127.0.0.1:55433/postgres CSTAM_DRIVER=docker \
       CSTAM_DOCKER_NETWORK=$DNET CSTAM_ADMIN_TOKEN=$(cat "$STATE/admin.token") \
-      exec setsid ./bin/cpd -listen "$ROUTER:8080" -workers "${CPD_WORKERS:-4}" ) >"$STATE/cpd.log" 2>&1 &
+      exec setsid ./bin/cpd -listen "$ROUTER:8443" -workers "${CPD_WORKERS:-4}" ) >"$STATE/cpd.log" 2>&1 &
     echo $! >"$STATE/cpd.pid"
     for _ in $(seq 40); do curl -sf "$CPD/healthz" >/dev/null && break; sleep 0.25; done
     curl -sf "$CPD/healthz" >/dev/null || { tail -5 "$STATE/cpd.log"; die "cpd did not start"; }
@@ -231,6 +236,30 @@ failover() {
   echo "$m recovered; VIP now served by $(master)"
 }
 
+load() {
+  local secs=${1:-20} conns=${2:-32} how=${3:-} hosts m
+  hosts=$(api GET "/v1/hackathons/$HACK/teams" | jq -r '[.[] | select(.state == "ready") | .fqdn] | join(",")')
+  [ -n "$hosts" ] || die "no ready team in $HACK (run: demo.sh teams N)"
+  m=$(master)
+  [ -z "$how" ] || [ -n "$m" ] || die "no master on the VIP"
+  echo "== load: $(tr , '\n' <<<"$hosts" | wc -l) teams, $conns workers, ${secs}s, keep-alive ${KEEPALIVE:-true}${how:+, $how $m at t=5s}"
+  if [ -n "$how" ]; then
+    ( sleep 5
+      case $how in
+        pause) docker pause "cstam-demo-$m" >/dev/null ;;
+        kill)  docker exec "cstam-demo-$m" pkill -KILL haproxy ;;
+      esac ) &
+  fi
+  local rate=${RATE:-$(( 150 * $(tr , '\n' <<<"$hosts" | wc -l) ))}
+  ./bin/cstamctl load -url "http://$VIP_IP/" -hosts "$hosts" -c "$conns" -d "${secs}s" -rate "$rate" -timeout "${TIMEOUT:-2s}" \
+    -keepalive="${KEEPALIVE:-true}" ${how:+-timeline} || true
+  wait
+  case $how in
+    pause) docker unpause "cstam-demo-$m" >/dev/null ;;
+    kill) [ "$(cat "$STATE/mode" 2>/dev/null)" = systemd ] || docker restart "cstam-demo-$m" >/dev/null ;;
+  esac
+}
+
 reload() {
   echo "== hot reload, broken config rejected and rolled back (real HAProxy 3.2 in Docker)"
   go test -count=1 -tags integration -v -run 'TestBrokenConfigRollsBack|TestReloadDropsNoRequest' ./internal/gw/applier/ |
@@ -268,6 +297,6 @@ down() {
 }
 
 case "${1:-}" in
-  up|teams|stress|failover|reload|teardown|status|down) "$@" ;;
-  *) sed -n "2,18p" "$0"; exit 2 ;;
+  up|teams|stress|failover|load|reload|teardown|status|down) "$@" ;;
+  *) sed -n "2,22p" "$0"; exit 2 ;;
 esac

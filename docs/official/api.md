@@ -1,6 +1,10 @@
 # REST API reference (`cpd`)
 
-Base URL: `http://10.20.0.5:8080` on FelCloud, `http://10.20.0.1:8080` in the local demo.
+Machine-readable spec: [openapi.yaml](openapi.yaml) (OpenAPI 3.1; a test fails if a route of the
+server is missing from it). Security model: [security.md](security.md).
+
+Base URL: `http://10.20.0.5:8443` on FelCloud (the only cp port the `cstam-cp` security group
+opens to the gateways), `http://10.20.0.1:8443` in the local demo.
 All bodies are JSON. Authentication: `Authorization: Bearer <token>`.
 - **admin token** (`CSTAM_ADMIN_TOKEN`): every `/v1` endpoint except the gateway ones;
 - **gateway token** (`CSTAM_GATEWAY_TOKEN`): only `/v1/gateways/...`.
@@ -16,6 +20,7 @@ All bodies are JSON. Authentication: `Authorization: Bearer <token>`.
 | 400 | invalid name, domain, port, image, JSON or parameter |
 | 401 | missing or wrong token |
 | 404 | unknown hackathon or team |
+| 415 | body is not `application/json` |
 | 409 | name already used, hackathon not active, lease already expired |
 | 503 | IP pool exhausted (`Retry-After: 60`) |
 | 500 | `internal error` (details only in the cpd log) |
@@ -89,6 +94,47 @@ otherwise when it changes or after `wait` (at most 25 s).
 ```
 Records what the gateway serves. A generation ahead of the database is refused (409): it would let
 the sweep free IPs too early.
+
+## Integrating a registration portal (client side)
+
+A hackathon portal (or `curl`) drives the platform with the admin token:
+1. `POST /v1/hackathons` once per event (`409` = it already exists: fine on a retry).
+2. For each team: `POST /v1/hackathons/{h}/teams`. The answer (`202`) already holds the team's
+   `ip`, `slot` and `fqdn`. **Retrying is safe**: a second POST with the same name gets `409`;
+   then `GET /v1/hackathons/{h}/teams` finds the team. On `503` wait `Retry-After` seconds (pool
+   full: IPs come back after teardown and the 60 s quarantine).
+3. Poll `GET /v1/teams/{id}` (every 1-2 s) until `state` is `ready` (typically 2-5 s with the
+   docker driver, about 25 s with one VM per team) or `failed` (`error` says why).
+4. Call `POST /v1/teams/{id}/renew` before `lease_expires_at` to keep a team; otherwise it is torn
+   down automatically.
+5. `DELETE /v1/hackathons/{h}` at the end: every route is removed at once, sandboxes are deleted,
+   IPs return to the pool when both gateways have acked.
+
+Every answer is JSON; errors are `{"error": "..."}` with the codes above. Client errors (4xx) must
+not be retried unchanged; `503` and network errors may be.
+
+## OpenStack API integration (`cpd` -> FelCloud)
+
+`cpd` is the only component with cloud rights (application credential from `clouds.yaml`, see
+[security.md](security.md)). The VM driver (`internal/openstack`, gophercloud v2) uses:
+
+| Step | API call | Notes |
+|---|---|---|
+| start | Keystone token from the application credential; Nova `GET /flavors`, Glance `GET /images` | flavor `G0.basic.1c1g` and image `Debian 12 - Bookworm` resolved once |
+| create, 1 | Neutron `GET /ports?name=cstam-<h>-<team>` | idempotency: an existing port with the same IP is reused |
+| create, 2 | Neutron `POST /ports` with `fixed_ips` = the team IP, `security_groups` = `cstam-team` | not retried (not idempotent); `409 IpAddressAlreadyAllocated` -> look again by name (our own lost answer) or `ErrIPTaken` (the IP stays quarantined) |
+| create, 3 | Neutron `PUT /ports/{id}/tags` (`cstam`, `cstam-team`) | for garbage collection by tag |
+| create, 4 | Nova `GET /servers?name=...`, then `POST /servers` with the port and cloud-init user-data | user-data serves the team page or runs the team image |
+| create, 5 | Nova `GET /servers/{id}` every 2 s until `ACTIVE` (`ERROR` -> team `failed`), 5 min max | |
+| delete | Nova `DELETE /servers/{id}`, wait for `404`, then Neutron `DELETE /ports/{id}` | refuses names without `cstam-`; `404` counts as done |
+| IP check | Neutron `GET /ports?network_id=...&fixed_ips=ip_address=...` | the sweep never frees an IP a port still holds |
+| reconcile (every 2 s) | the create and delete calls above, driven by the database | resumes teams left in `provisioning` or `deleting` (e.g. after a cpd restart), cleans failed teams, expires leases. Resources are found by their deterministic name; there is no scan of the cloud for orphans (a row deleted by hand from the database would leave its VM: `List` by prefix and tag exists for that, used by the tests) |
+
+Errors: idempotent calls are retried 3 times (200, 400, 800 ms) on 429, 5xx and network errors;
+at most 8 calls in flight. Quota errors (`OverQuota`, 413) map to `ErrQuota` and the team fails
+with a clear message instead of retrying forever. Measured on FelCloud: VM ACTIVE in 23 s, server
+and port deleted in 14 s (benchmark B4). Static infrastructure (network, router, security groups,
+VIP and gateway ports, floating IPs) is created by Pulumi (`infra/pulumi`), not by `cpd`.
 
 ## Example session
 ```bash

@@ -179,6 +179,30 @@ Self-service options checked (none frees a 197.5.133.x address):
   test container. Not run for real (needs the cp VM).
 - Cleanup done: yes (`demo.sh down`).
 
+### L9 - HTTP load test, failover under load, flood isolation  (2026-10-20, Emna's PC, Docker)
+- Tool: `cstamctl load` (new, stdlib only): fixed total rate, checks each 200 is the requested
+  team's page, per-second timeline, longest time without a successful answer. Run with
+  `deploy/dev/demo.sh load [SECONDS] [WORKERS] [pause|kill]`, 20 teams.
+- First run without a rate: every answer 429 (the per-Host limit, 2000 per 10 s, works; refused
+  requests count, so a flooder stays blocked). The gateway answered ~95,000 req/s of 429s.
+- Steady 3,000 req/s (150 per team): 0 errors, 0 misrouted, p99 1.6 ms (keep-alive), 4.5 ms (new
+  connection each time), 1.2 ms with systemd gateways.
+- Failover under load (0.3 s client timeout): frozen master 1.51 s x3 without any success; HAProxy
+  killed 1.91 s (plain), 0.46 / 0.55 / 0.69 s (systemd restart, no failover). 0 misrouted. With a
+  2 s client timeout the frozen case reads 2.0 s: requests hang on the frozen gateway until the
+  timeout, so the client timeout bounds what a user sees.
+- Flood: team01 at ~79,000 req/s for 20 s: 1,968 served, 1,584,829 refused (429); 19 other teams at
+  2,850 req/s: 0 errors, p99 3.7 ms.
+- Seen: right after the flood, team01 was still limited in the next run until a failover moved the
+  traffic to the other gateway (rate counters are per gateway, no `peers`): written as a known gap.
+- Found while writing security.md: `cpd` listened on 8080 but `cstam-cp` only opens 8443 to the
+  agents, so on FelCloud the gateways could not have reached `cpd`. Fixed in code (no cloud change):
+  `config.CPDPort = 8443` is the default of `cpd -listen` and `gwagent -cpd`, env examples and demo.
+- New test `TestGatewayGuards` (real HAProxy): `/__gw/*` is a silent 404 from an outside source
+  address, a flooded Host gets 429 while another team answers, and `A.HACKA.TEST:80` does not
+  bypass the limit. `TestOpenAPIListsEveryRoute` keeps `docs/official/openapi.yaml` in step.
+- Cleanup done: yes (`demo.sh down`).
+
 ## Decisions log
 | Date | Decision | Based on | Alternatives rejected |
 |---|---|---|---|

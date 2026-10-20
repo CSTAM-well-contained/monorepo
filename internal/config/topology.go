@@ -43,6 +43,10 @@ func inRange(ip, lo, hi netip.Addr) bool {
 	return ip.Compare(lo) >= 0 && ip.Compare(hi) <= 0
 }
 
+// CPDPort is the port of the cpd API. The cstam-cp security group (infra/pulumi/secgroups.go)
+// only lets the agents in on this port. Plain HTTP with bearer tokens today; mTLS later.
+const CPDPort = 8443
+
 // TeamPorts are the app port ranges the cstam-team security group opens to the gateways.
 // infra/pulumi/secgroups.go must open exactly these ranges.
 var TeamPorts = [][2]int{{80, 80}, {8000, 8099}}

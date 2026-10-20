@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -45,7 +46,7 @@ func main() {
 	var f flags
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.StringVar(&f.name, "name", "", "gateway name: gw1 or gw2 (required)")
-	flag.StringVar(&f.cpd, "cpd", "http://"+config.ControlIP.String()+":8080", "cpd base URL")
+	flag.StringVar(&f.cpd, "cpd", "http://"+config.ControlIP.String()+":"+strconv.Itoa(config.CPDPort), "cpd base URL")
 	flag.StringVar(&f.runDir, "run-dir", "/run/cstam", "ready file and vrrp.state")
 	flag.StringVar(&f.stateFile, "state-file", "/var/lib/cstam/desired.json", "last applied routes")
 	flag.StringVar(&f.dir, "haproxy-dir", "/etc/haproxy", "haproxy.cfg, maps/ and errors/")

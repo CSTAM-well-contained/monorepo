@@ -120,6 +120,9 @@ to an address that a new team now uses. Every IP change writes an `events` row.
 
 ## 6. Security
 
+Summary below; the full threat model, firewall table, verification and known gaps are in
+[security.md](security.md).
+
 - **Isolation between teams**: the `cstam-team` security group only accepts TCP 80 and 8000-8099
   from the `cstam-gw` group, and has no "self" rule, so Neutron drops team-to-team traffic. Teams
   cannot reach each other, the gateways' management, or the control plane.
