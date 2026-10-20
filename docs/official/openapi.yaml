@@ -145,6 +145,42 @@ paths:
         "200": {description: status, content: {application/json: {schema: {$ref: "#/components/schemas/Status"}}}}
         "401": {$ref: "#/components/responses/Unauthorized"}
 
+  /v1/teams:
+    get:
+      tags: [teams]
+      summary: Teams of every hackathon that are not deleted, newest first (dashboard)
+      responses:
+        "200": {description: teams, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/Team"}}}}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /v1/events:
+    get:
+      tags: [status]
+      summary: Event log (team states, IP changes, VRRP transitions)
+      parameters:
+        - {name: after, in: query, schema: {type: integer, minimum: 0}, description: "return events with a larger id, oldest first; without it, the last ones"}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 500, default: 100}}
+      responses:
+        "200": {description: events, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/Event"}}}}}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /v1/ipam:
+    get:
+      tags: [status]
+      summary: Every address of the team pool with its state and holder
+      responses:
+        "200": {description: addresses, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/Address"}}}}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
+  /v1/routes:
+    get:
+      tags: [status]
+      summary: The routing table the gateways should serve now
+      responses:
+        "200": {description: routes, content: {application/json: {schema: {$ref: "#/components/schemas/Desired"}}}}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+
   /v1/gateways/{gw}/desired:
     parameters: [{$ref: "#/components/parameters/Gateway"}]
     get:
@@ -264,6 +300,8 @@ components:
         vrrp_state: {type: string, enum: [MASTER, BACKUP, FAULT, STOP, ""]}
         vrrp_since: {type: string, format: date-time}
         last_seen: {type: string, format: date-time}
+        alive: {type: boolean, description: "acked in the last 40 s"}
+        in_sync: {type: boolean, description: "serves the current routes generation"}
     Status:
       type: object
       properties:
@@ -271,6 +309,24 @@ components:
         ip_pool: {type: object, additionalProperties: {type: integer}, description: "count per IP state: free, allocated, quarantine, reserved"}
         teams: {type: object, additionalProperties: {type: integer}, description: count per team state}
         gateways: {type: array, items: {$ref: "#/components/schemas/Gateway"}}
+        alerts: {type: array, items: {type: string}, description: "split brain, no master, gateway behind or silent; empty when healthy"}
+    Event:
+      type: object
+      properties:
+        id: {type: integer}
+        at: {type: string, format: date-time}
+        kind: {type: string, example: team.ready}
+        team: {type: string}
+        detail: {type: object}
+    Address:
+      type: object
+      properties:
+        ip: {type: string}
+        state: {type: string, enum: [free, allocated, quarantine, reserved]}
+        team: {type: string}
+        hackathon: {type: string}
+        released_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
     Route:
       type: object
       properties:

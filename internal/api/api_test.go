@@ -79,6 +79,22 @@ func (s *stub) Ack(_ context.Context, gw string, a model.Ack) error {
 	s.last, s.ack = "Ack "+gw, a
 	return s.err
 }
+func (s *stub) AllTeams(context.Context) ([]lifecycle.Team, error) {
+	s.last = "AllTeams"
+	return []lifecycle.Team{}, s.err
+}
+func (s *stub) Events(_ context.Context, after int64, limit int) ([]lifecycle.Event, error) {
+	s.last = fmt.Sprint("Events ", after, " ", limit)
+	return []lifecycle.Event{}, s.err
+}
+func (s *stub) Addresses(context.Context) ([]lifecycle.Address, error) {
+	s.last = "Addresses"
+	return []lifecycle.Address{}, s.err
+}
+func (s *stub) Routes(context.Context) (model.Desired, error) {
+	s.last = "Routes"
+	return model.Desired{Routes: []model.Route{}}, s.err
+}
 
 func do(t *testing.T, st *stub, method, path, token, body string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -111,6 +127,14 @@ func TestRoutes(t *testing.T) {
 		{"gateway token on admin route", "GET", "/v1/status", gwTok, "", 401, ""},
 		{"admin token on gateway route", "GET", "/v1/gateways/gw1/desired", adminTok, "", 401, ""},
 		{"status", "GET", "/v1/status", adminTok, "", 200, "Status"},
+		{"all teams", "GET", "/v1/teams", adminTok, "", 200, "AllTeams"},
+		{"all teams needs admin", "GET", "/v1/teams", gwTok, "", 401, ""},
+		{"last events", "GET", "/v1/events", adminTok, "", 200, "Events -1 100"},
+		{"events after", "GET", "/v1/events?after=7&limit=20", adminTok, "", 200, "Events 7 20"},
+		{"events bad after", "GET", "/v1/events?after=-3", adminTok, "", 400, ""},
+		{"events bad limit", "GET", "/v1/events?limit=9999", adminTok, "", 400, ""},
+		{"ipam", "GET", "/v1/ipam", adminTok, "", 200, "Addresses"},
+		{"routes", "GET", "/v1/routes", adminTok, "", 200, "Routes"},
 		{"create hackathon", "POST", "/v1/hackathons", adminTok, `{"name":"h1","domain":"h1.example.org"}`, 201, "CreateHackathon"},
 		{"unknown field", "POST", "/v1/hackathons", adminTok, `{"name":"h1","bogus":1}`, 400, ""},
 		{"negative ttl", "POST", "/v1/hackathons", adminTok, `{"name":"h1","lease_ttl_seconds":-1}`, 400, ""},

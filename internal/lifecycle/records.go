@@ -65,6 +65,8 @@ type Gateway struct {
 	VRRPState     string     `json:"vrrp_state"`
 	VRRPSince     *time.Time `json:"vrrp_since,omitempty"`
 	LastSeen      time.Time  `json:"last_seen"`
+	Alive         bool       `json:"alive"`   // acked within GatewayAlive
+	InSync        bool       `json:"in_sync"` // serves the current generation
 }
 
 // Status is the platform overview (dashboard, demo).
@@ -73,6 +75,7 @@ type Status struct {
 	Pool       map[string]int `json:"ip_pool"`
 	Teams      map[string]int `json:"teams"`
 	Gateways   []Gateway      `json:"gateways"`
+	Alerts     []string       `json:"alerts"` // split brain, no master, gateway behind or silent
 }
 
 func pgCode(err error) string {
@@ -294,7 +297,9 @@ func (c *Controller) Status(ctx context.Context) (Status, error) {
 		s.Teams[n.State] = n.N
 	}
 	rows, err = c.db.Query(ctx,
-		`SELECT name, acked_gen, config_version, vrrp_state, vrrp_since, last_seen FROM gateways ORDER BY name`)
+		`SELECT name, acked_gen, config_version, vrrp_state, vrrp_since, last_seen,
+		   last_seen > now() - $1 * interval '1 millisecond', acked_gen >= $2
+		 FROM gateways ORDER BY name`, GatewayAlive.Milliseconds(), s.Generation)
 	if err != nil {
 		return s, fmt.Errorf("status: %w", err)
 	}
@@ -302,6 +307,7 @@ func (c *Controller) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return s, fmt.Errorf("status: %w", err)
 	}
+	s.Alerts = alerts(s.Generation, s.Gateways)
 	return s, nil
 }
 

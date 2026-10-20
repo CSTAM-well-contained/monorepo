@@ -33,6 +33,10 @@ type Controller interface {
 	Status(ctx context.Context) (lifecycle.Status, error)
 	Desired(ctx context.Context, after int64, wait time.Duration) (model.Desired, error)
 	Ack(ctx context.Context, gateway string, a model.Ack) error
+	AllTeams(ctx context.Context) ([]lifecycle.Team, error)
+	Events(ctx context.Context, after int64, limit int) ([]lifecycle.Event, error)
+	Addresses(ctx context.Context) ([]lifecycle.Address, error)
+	Routes(ctx context.Context) (model.Desired, error)
 }
 
 // MaxWait caps the desired-state long-poll (below common proxy idle timeouts).
@@ -79,6 +83,10 @@ func (s *Server) routes() []route {
 		{"POST /v1/teams/{id}/renew", adminOnly, s.renewTeam},
 		{"DELETE /v1/teams/{id}", adminOnly, s.deleteTeam},
 		{"GET /v1/status", adminOnly, s.status},
+		{"GET /v1/teams", adminOnly, s.allTeams},
+		{"GET /v1/events", adminOnly, s.events},
+		{"GET /v1/ipam", adminOnly, s.addresses},
+		{"GET /v1/routes", adminOnly, s.routeTable},
 		{"GET /v1/gateways/{gw}/desired", gatewayOnly, s.desired},
 		{"POST /v1/gateways/{gw}/ack", gatewayOnly, s.ack},
 	}
@@ -208,6 +216,45 @@ func (s *Server) deleteTeam(w http.ResponseWriter, r *http.Request) {
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	st, err := s.C.Status(r.Context())
 	s.reply(w, r, http.StatusOK, st, err)
+}
+
+func (s *Server) allTeams(w http.ResponseWriter, r *http.Request) {
+	ts, err := s.C.AllTeams(r.Context())
+	s.reply(w, r, http.StatusOK, ts, err)
+}
+
+// events: ?after=<id> returns newer events (oldest first); without it, the last ones.
+func (s *Server) events(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	after, limit := int64(-1), 100
+	if v := q.Get("after"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 0 {
+			writeError(w, http.StatusBadRequest, "after must be an event id")
+			return
+		}
+		after = n
+	}
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 500 {
+			writeError(w, http.StatusBadRequest, "limit must be 1 to 500")
+			return
+		}
+		limit = n
+	}
+	evs, err := s.C.Events(r.Context(), after, limit)
+	s.reply(w, r, http.StatusOK, evs, err)
+}
+
+func (s *Server) addresses(w http.ResponseWriter, r *http.Request) {
+	as, err := s.C.Addresses(r.Context())
+	s.reply(w, r, http.StatusOK, as, err)
+}
+
+func (s *Server) routeTable(w http.ResponseWriter, r *http.Request) {
+	d, err := s.C.Routes(r.Context())
+	s.reply(w, r, http.StatusOK, d, err)
 }
 
 func (s *Server) desired(w http.ResponseWriter, r *http.Request) {
