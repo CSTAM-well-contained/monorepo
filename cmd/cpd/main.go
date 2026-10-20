@@ -33,6 +33,7 @@ import (
 	"github.com/CSTAM-well-contained/monorepo/internal/openstack"
 	"github.com/CSTAM-well-contained/monorepo/internal/openstack/fake"
 	"github.com/CSTAM-well-contained/monorepo/internal/store"
+	"github.com/CSTAM-well-contained/monorepo/web"
 )
 
 var version = "dev" // set by -ldflags "-X main.version=..."
@@ -79,7 +80,7 @@ func run(ctx context.Context, log *slog.Logger, listen string, workers int, ever
 	}
 	ctl := lifecycle.NewController(ctx, pool, m, sbx, log, workers)
 	srv := &api.Server{C: ctl, AdminToken: os.Getenv("CSTAM_ADMIN_TOKEN"),
-		GatewayToken: os.Getenv("CSTAM_GATEWAY_TOKEN"), Log: log}
+		GatewayToken: os.Getenv("CSTAM_GATEWAY_TOKEN"), Log: log, UI: web.Handler()}
 	if err := srv.Validate(); err != nil {
 		return err
 	}

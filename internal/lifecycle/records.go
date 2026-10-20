@@ -82,6 +82,7 @@ type Status struct {
 	Gateways   []Gateway      `json:"gateways"`
 	Alerts     []string       `json:"alerts"`         // split brain, no master, gateway behind or silent
 	Config     string         `json:"config_version"` // newest config version, "" before the first push
+	VIP        string         `json:"vip"`            // the public entry the MASTER holds
 }
 
 func pgCode(err error) string {
@@ -344,6 +345,7 @@ func (c *Controller) Status(ctx context.Context) (Status, error) {
 	if cfgID != nil {
 		s.Config = versionName(*cfgID)
 	}
+	s.VIP = config.VIP.String()
 	s.Alerts = alerts(s.Generation, s.Config, s.Gateways)
 	return s, nil
 }

@@ -247,6 +247,20 @@ Self-service options checked (none frees a 197.5.133.x address):
   over its 10 s window 9 s into the run (window still holds the ramp-up), 0 lines dropped.
 - Cleanup done: no (demo stack kept running for the dashboard work).
 
+### L13 - Dashboard in a real browser  (2026-10-20, Emna's PC, headless Edge over CDP)
+- Setup: demo stack (systemd gateways, 4 teams), cpd serving `web/` at `/`; a local TCP forwarder
+  127.0.0.1:18443 -> 10.20.0.1:8443 so the Windows browser reaches cpd in WSL; Edge headless
+  driven over the DevTools protocol from PowerShell (the Chrome extension was not connected).
+- Checked: login with the admin token, every tab renders, "live" pill green, no alert when
+  healthy. Clicking **Planned failover** on gw1 + confirm: gw2 MASTER and first card within
+  ~1 s, gw1 "FAULT, forced backup", red banner, timeline "planned failover of gw1 / gw1 FAULT /
+  gw2 MASTER". Spin-up form: `jury01` ready on 10.20.0.36 (slot 5) ~1.5 s after submit.
+  Teardown with the typed name: `team04` deleting at once, toast "teardown started".
+- Bugs found and fixed before commit: `replaceChildren(null)` printed "null" on the Traffic tab
+  (now a `put()` helper skips null); unbounded traffic table (now a scroll box); low contrast of
+  white text on the light accent in dark mode.
+- Cleanup done: demo stack still up; forwarder is a throwaway script outside the repo.
+
 ## Decisions log
 | Date | Decision | Based on | Alternatives rejected |
 |---|---|---|---|

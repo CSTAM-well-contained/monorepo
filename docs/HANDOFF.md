@@ -48,6 +48,7 @@ builds on Phase 1, so Phase 1 comes first.
 | Automated IPAM and reclamation, short leases | 10 | **done, tested**: IPAM wired into cpd (lease expiry, ack-gated recycling) |
 | API-triggered OpenStack sandbox provisioning | 15 | **done**: REST API `cpd` + VM driver tested on FelCloud; full run on FelCloud waits for floating IPs |
 | Deliverables: code, architecture/data-flow diagram, demo video | | **official docs in `docs/official/`** (Task F); local demo stack (`deploy/dev/demo.sh`, Task E); video recording missing |
+| Phase 3: admin dashboard | 10 | **done, tested in a browser** (Task J): served by cpd at `/`, every brief item and the 4 manual controls (spin-up, teardown, planned failover, config rollback) |
 
 ### What exists and is tested
 - `internal/gw/haproxy`: renders `haproxy.cfg` (128 slot backends `be_slot001..`, canary `be_slot000`,
@@ -247,7 +248,7 @@ Not run for real: `cpd.service` (needs the cp VM).
 4. Check: `curl -H "Host: <team>.<domain>" http://<public FIP>/`, then the failover demo with
    `echo c | sudo tee /proc/sysrq-trigger` on the MASTER (guide ch. 20), and record it (notebook).
 
-### Task J: Phase 3 admin dashboard (10 pts): IN PROGRESS (started 2026-10-20)
+### Task J: Phase 3 admin dashboard (10 pts): DONE (2026-10-20), follow-ups in item 6
 Why now: tasks A-I are done and FelCloud work waits for floating IPs; the dashboard is the
 largest unscored part of the brief. Design decision (notebook decisions log): **plain HTML/JS
 embedded in `cpd`, polling the REST API**, not React + Vite as in guide ch. 21: no Node on our
@@ -273,7 +274,15 @@ the API (gateway `alive`/`in_sync`, `alerts`), never in the browser. Slices:
    `GET /v1/traffic?after=&host=&limit=` (lines, req/s and 5xx per gateway over 10 s),
    `POST /v1/gateways/{gw}/traffic` (gateway token). `gwagent -traffic-log 127.0.0.1:5514` is
    on by default (notebook L12). Lost on cpd restart by design (live view, not an audit log).
-5. TODO: the dashboard (`web/`, `go:embed`, served by cpd at `/`), docs, video script.
+5. DONE: the dashboard. `web/dashboard/` (index.html, style.css, app.js) embedded by `web/embed.go`,
+   served by cpd at `/` with a strict CSP. Tabs: Overview (gateway cards MASTER first, alerts,
+   tiles, IP grid, timelines), Teams (spin-up, extend, teardown), Traffic (live), IP pool,
+   Config (push, rollback, demo presets), Events. Docs: `docs/official/dashboard.md` with
+   screenshots. Checked in a real browser (notebook L13). Proof: `go test ./web/`.
+6. TODO (next): read-only viewer token for the jury (GET only); record the demo video with the
+   dashboard (script in `docs/official/dashboard.md` order: overview, spin-up, traffic, planned
+   failover, config broken -> rolled back -> manual rollback, teardown and IP grid); TLS or an
+   SSH tunnel for the dashboard on FelCloud (cpd is plain HTTP).
 
 ## 6. Good to know
 - Guide errata found by testing, already fixed in ch. 12: keepalived 2.3 refuses `delay 0` in

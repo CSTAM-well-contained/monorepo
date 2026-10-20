@@ -56,6 +56,7 @@ type Server struct {
 	GatewayToken string
 	Log          *slog.Logger
 	Traffic      *TrafficRing // live traffic lines from the gateways; created by Handler if nil
+	UI           http.Handler // the dashboard (package web), served at /; nil = API only
 }
 
 // token says which bearer token a route needs.
@@ -111,6 +112,11 @@ func (s *Server) Handler() http.Handler {
 		s.Traffic = NewTrafficRing(0)
 	}
 	mux := http.NewServeMux()
+	if s.UI != nil {
+		for _, p := range []string{"GET /{$}", "GET /app.js", "GET /style.css"} {
+			mux.Handle(p, s.UI)
+		}
+	}
 	for _, r := range s.routes() {
 		switch r.token {
 		case adminOnly:

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSTAM Control</title>
+<link rel="stylesheet" href="style.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<div id="login" class="login" hidden>
+  <form id="login-form" class="card login-card">
+    <h1>CSTAM Control</h1>
+    <p class="muted">Resilient IP Optimizer: sandboxes, HA gateways, IPAM.</p>
+    <label>Admin token
+      <input id="login-token" type="password" autocomplete="current-password" required minlength="16">
+    </label>
+    <p class="muted small">The token stays in this browser tab (session storage) and is sent only to this server.</p>
+    <button type="submit" class="primary">Open the dashboard</button>
+    <p id="login-error" class="error" role="alert"></p>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <header class="top">
+    <div class="brand">CSTAM Control</div>
+    <nav id="tabs" aria-label="Sections">
+      <button data-tab="overview" class="active">Overview</button>
+      <button data-tab="teams">Teams</button>
+      <button data-tab="traffic">Traffic</button>
+      <button data-tab="ipam">IP pool</button>
+      <button data-tab="config">Config</button>
+      <button data-tab="events">Events</button>
+    </nav>
+    <div class="right">
+      <span id="live" class="live off" role="status">connecting</span>
+      <button id="logout" class="ghost">Log out</button>
+    </div>
+  </header>
+  <div id="alerts" class="alerts" role="alert" hidden></div>
+  <main>
+    <section id="tab-overview" class="tab"></section>
+    <section id="tab-teams" class="tab" hidden>
+      <div class="row">
+        <form id="spinup" class="card grow">
+          <h2>Spin up a team sandbox</h2>
+          <div class="fields">
+            <label>Hackathon <select id="spinup-hack" required></select></label>
+            <label>Team name <input id="spinup-name" required pattern="[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?" placeholder="team07"></label>
+            <label>App port <input id="spinup-port" type="number" value="80" min="1" max="65535"></label>
+            <label>Image (optional) <input id="spinup-image" placeholder="default page"></label>
+          </div>
+          <button type="submit" class="primary">Spin up</button>
+        </form>
+        <details class="card">
+          <summary><h2>New hackathon</h2></summary>
+          <form id="newhack" class="fields">
+            <label>Name <input id="newhack-name" required pattern="[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?" placeholder="cstam3"></label>
+            <label>Domain <input id="newhack-domain" required placeholder="cstam3.cstam.felcloud.tn"></label>
+            <label>Lease (minutes) <input id="newhack-ttl" type="number" value="120" min="1"></label>
+            <button type="submit">Create</button>
+          </form>
+        </details>
+      </div>
+      <div id="teams-list"></div>
+    </section>
+    <section id="tab-traffic" class="tab" hidden>
+      <div class="toolbar">
+        <label>Host <input id="traffic-host" list="traffic-hosts" placeholder="all teams"></label>
+        <datalist id="traffic-hosts"></datalist>
+        <button id="traffic-pause">Pause</button>
+        <button id="traffic-clear" class="ghost">Clear</button>
+      </div>
+      <div id="traffic-view"></div>
+    </section>
+    <section id="tab-ipam" class="tab" hidden></section>
+    <section id="tab-config" class="tab" hidden>
+      <form id="pushcfg" class="card">
+        <h2>Push a config version</h2>
+        <p class="muted small">Each gateway checks it with <code>haproxy -c</code>, reloads without dropping connections, verifies it serves, and rolls back by itself if not.</p>
+        <div class="fields">
+          <label>Rate limit (requests per 10 s per team) <input id="cfg-rate" type="number" min="1" max="1000000" value="2000" required></label>
+          <label>Reason <input id="cfg-reason" maxlength="200" placeholder="why"></label>
+        </div>
+        <label>Extra frontend lines (one per line, advanced)
+          <textarea id="cfg-extra" rows="3" spellcheck="false"></textarea>
+        </label>
+        <div class="row">
+          <button type="submit" class="primary">Push</button>
+          <span class="muted small">Demo presets:</span>
+          <button type="button" id="preset-broken" class="ghost">valid but broken</button>
+          <button type="button" id="preset-typo" class="ghost">syntax error</button>
+        </div>
+      </form>
+      <div id="config-view"></div>
+    </section>
+    <section id="tab-events" class="tab" hidden></section>
+  </main>
+</div>
+
+<dialog id="confirm">
+  <form method="dialog" class="confirm">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-text"></p>
+    <label id="confirm-type-label" hidden>Type <b id="confirm-word"></b> to confirm
+      <input id="confirm-input" autocomplete="off">
+    </label>
+    <div class="row end">
+      <button value="cancel" class="ghost">Cancel</button>
+      <button value="ok" id="confirm-ok" class="danger">Confirm</button>
+    </div>
+  </form>
+</dialog>
+<div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

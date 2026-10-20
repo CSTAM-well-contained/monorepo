@@ -71,12 +71,35 @@ Starts the teardown (same order as a lease expiry).
 
 ### `GET /v1/status` -> 200
 ```json
-{"generation": 7,
+{"generation": 7, "config_version": "c4", "vip": "10.20.0.10",
  "ip_pool": {"allocated": 3, "free": 152, "quarantine": 4, "reserved": 1},
  "teams": {"ready": 3, "deleted": 4},
- "gateways": [{"name": "gw1", "acked_generation": 7, "config_version": "v1",
-               "vrrp_state": "MASTER", "vrrp_since": "...", "last_seen": "..."}]}
+ "gateways": [{"name": "gw1", "acked_generation": 7, "config_version": "c4",
+               "vrrp_state": "MASTER", "vrrp_since": "...", "last_seen": "...",
+               "alive": true, "in_sync": true, "force_backup": false,
+               "config_tried": "c4", "config_outcome": "applied"}],
+ "alerts": []}
 ```
+`alerts` is computed by cpd, never by a client: split brain (two MASTERs), no MASTER, a gateway
+silent for 40 s, behind the current generation, in FAULT, or refusing the newest config version.
+
+### Dashboard reads
+| Endpoint | Returns |
+|---|---|
+| `GET /v1/teams` | live teams of every hackathon, newest first |
+| `GET /v1/events?after=ID&limit=N` | event log (team states, IP lease/quarantine/free, VRRP transitions, failovers, config outcomes), oldest first; without `after`, the last N |
+| `GET /v1/ipam` | every address of the team pool with state, team and release time |
+| `GET /v1/routes` | the routing table the gateways should serve now |
+| `GET /v1/traffic?after=ID&host=FQDN&limit=N` | live traffic lines (client, host, method, path without query, status, timings, backend slot) and per-gateway req/s and 5xx over 10 s; in memory, best effort |
+
+## Manual controls
+| Endpoint | Effect |
+|---|---|
+| `POST /v1/gateways/{gw}/failover[?force=true]` -> 202 | planned failover: the gateway's agent writes 1 into keepalived's force-backup file, the instance goes to FAULT, the peer takes the VIP (about 0.3 s, notebook L10). 409 when no other gateway is alive, in sync, out of FAULT and not forced down, unless `force=true` |
+| `POST /v1/gateways/{gw}/failback` -> 202 | clears it; the gateway comes back as BACKUP (`nopreempt`) |
+| `POST /v1/config` -> 201 | new HAProxy config version `{"rate_limit": 1000, "extra": ["..."], "reason": "..."}`; each gateway checks, reloads hitlessly, verifies, rolls back by itself on failure, and reports `config_outcome` |
+| `GET /v1/config` -> 200 | versions, newest first |
+| `POST /v1/config/{v}/rollback` -> 201 | manual rollback: a new version with the content of `v` (history is never rewritten, so a gateway that was offline converges to the newest) |
 
 ## Gateway endpoints (used by `gwagent`)
 
@@ -85,12 +108,20 @@ Long-poll: answers at once if the routes generation differs from `N` (or without
 otherwise when it changes or after `wait` (at most 25 s).
 ```json
 {"generation": 7, "routes": [{"host": "team5.hack1.cstam.felcloud.tn", "slot": 5,
-                               "addr": "10.20.0.36", "port": 8080}]}
+                               "addr": "10.20.0.36", "port": 8080}],
+ "force_backup": [], "config": {"version": "c4", "rate_limit": 2000}}
 ```
+`force_backup` and `config` are part of the same generation: a failover or a config push bumps it,
+which wakes the long-polls.
+
+### `POST /v1/gateways/{gw}/traffic` -> 200
+Batches of at most 150 traffic lines, about once a second, plus the count of lines dropped on
+the gateway. Best effort: a failed batch is counted as dropped, never retried.
 
 ### `POST /v1/gateways/{gw}/ack` -> 200
 ```json
-{"generation": 7, "config_version": "v1", "vrrp_state": "MASTER"}
+{"generation": 7, "config_version": "c4", "vrrp_state": "MASTER",
+ "config_tried": "c4", "config_outcome": "applied", "config_error": ""}
 ```
 Records what the gateway serves. A generation ahead of the database is refused (409): it would let
 the sweep free IPs too early.
