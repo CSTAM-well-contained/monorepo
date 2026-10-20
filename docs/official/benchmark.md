@@ -6,7 +6,7 @@ lab notebook entry with the details ([experiments.md](../notebook/experiments.md
 **Where:** a laptop (WSL2 Debian 13, Docker 29) running real HAProxy 3.2, keepalived 2.3,
 PostgreSQL 18 and our binaries, on a Docker bridge with the FelCloud IP plan (10.20.0.0/24); and
 **FelCloud** for the VM driver (B4) and network isolation (B9). FelCloud has no free public IP
-yet (`ExternalIpAddressExhausted`, last try 2026-10-20), so the gateways cannot be reached from
+yet (`ExternalIpAddressExhausted`), so the gateways cannot be reached from
 the internet there; on OVN, failover will add the virtual-port rebinding time (expected
 10-300 ms), to be measured once the public IPs exist.
 
@@ -31,7 +31,7 @@ Phase 2 validation summary: [phase2.md](phase2.md).
 | B8 | HTTP load through the VIP, 20 teams | **3,000 req/s, 0 errors, 0 misrouted, p99 1.2-1.6 ms** (new connection per request: p99 4.5 ms) | load test metrics |
 | B8 | Failover **under that load** | longest time without any successful answer: frozen master **1.51 s**; HAProxy killed **1.9 s** (plain), **0.46-0.69 s** (systemd); 0 misrouted | seamless |
 | B8 | One team flooded (~79,000 req/s) | 99.9 % answered 429; the 19 other teams: **0 errors, p99 3.7 ms** | isolation |
-| B5 | Rerun 2026-10-20: 20 and 50 at once | 20/20 p95 3.1 s; 50/50 p95 7.0 s with 24 teams already up; 0 errors | 10+ teams, error-free |
+| B5 | Rerun: 20 and 50 at once | 20/20 p95 3.1 s; 50/50 p95 7.0 s with 24 teams already up; 0 errors | 10+ teams, error-free |
 | B7 | Lease expiry, nobody acting | at the expiry second: route removed (404), IP quarantined, sandbox deleted 1 s later | automated teardown |
 | B9 | Network isolation **on FelCloud** (lab VMs) | team to team, team to gateway management and to cp: **all dropped**; gateway to team: open | network isolation |
 
@@ -92,7 +92,7 @@ and IP) answers through the VIP.
 | 20 | 4 | 0.32 s | 20/20 | 2.37 s | 4.02 s | 4.16 s | 20 / 20 |
 | 20 | 16 | 0.40 s | 20/20 | 2.11 s | 2.42 s | 3.55 s | 20 / 20 |
 | 50 | 16 | 0.51 s | 50/50 | 3.39 s | 4.93 s | 5.10 s | 50 / 50 |
-| 20 (rerun 10-20, L15) | 4 | 0.25 s | 20/20 | 1.88 s | 3.08 s | 3.09 s | 20 / 20 |
+| 20 (rerun, L15) | 4 | 0.25 s | 20/20 | 1.88 s | 3.08 s | 3.09 s | 20 / 20 |
 | 50 (rerun, 24 teams already up) | 4 | 0.33 s | 50/50 | 3.95 s | 6.97 s | 7.01 s | 50 / 50 |
 
 The API answers every registration in under 0.6 s (IP and slot are allocated in that call); the
@@ -125,7 +125,7 @@ The 60 s quarantine is a deliberate safety margin (`ipam.Quarantine`, for ARP ca
 keep-alive connections); the gateway-ack condition alone is met within milliseconds.
 With `cpd -quarantine 10s` (video) the 20 IPs of a hackathon were free 11 s after its end.
 
-Rerun 2026-10-20 (L15): 50 teams deleted in 6.9 s, IPs free at 63.0 s, 0 routes left, a deleted
+Rerun (L15): 50 teams deleted in 6.9 s, IPs free at 63.0 s, 0 routes left, a deleted
 team's subdomain answers 404. **Lease expiry** with nobody acting (hackathon with a 30 s lease, 3
 teams): at the expiry second the routes were removed (200 -> 404) and the IPs quarantined; the
 teams were deleted 1 s later.

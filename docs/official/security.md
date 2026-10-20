@@ -176,7 +176,7 @@ local demo run with memory, CPU and pid limits, `no-new-privileges` and all capa
 | Agents talk to `cpd` in plain HTTP inside the private network | someone already on `cstam-sandbox-net` could read the gateway token | the security groups only let the gateway and host groups reach 8443; mTLS (`internal/pki`) is the Phase 3 step |
 | One gateway token shared by gw1 and gw2 | a compromised gateway could post acks as the other one | per-gateway tokens or mTLS client certificates |
 | Rate-limit counters are per gateway (no `peers` section) | after a failover a flooding client starts from zero on the new MASTER | HAProxy `peers` between gw1 and gw2 |
-| ~~Team egress is open~~ fixed 2026-10-20 | was: a sandbox could reach cp SSH (L14) | `cstam-team` egress only outside 10.20.0.0/24; the internet and metadata stay reachable |
+| ~~Team egress is open~~ fixed | was: a sandbox could reach cp SSH (L14) | `cstam-team` egress only outside 10.20.0.0/24; the internet and metadata stay reachable |
 | No TLS on the public entry yet | team sites are HTTP only | wildcard certificate (bonus, needs DNS from FelCloud) |
 | The local Docker demo has no isolation between team containers | demo only | isolation is enforced by Neutron on FelCloud |
 | gw1 and gw2 run on the same hypervisor (soft anti-affinity) | a hypervisor failure takes both | asked FelCloud; hard anti-affinity failed for lack of hosts |

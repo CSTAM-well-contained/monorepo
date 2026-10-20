@@ -1,8 +1,8 @@
 # Phase 2 validation: integration and testing (30 points)
 
 How each Phase 2 requirement of the [brief](../challenge/brief.md) was validated, with the command
-that reproduces it and the measured result. Run on 2026-10-20: the local stack (real HAProxy 3.2,
-keepalived, PostgreSQL 18, our binaries, FelCloud IP plan on a Docker bridge) and **FelCloud
+that reproduces it and the measured result. Run on the local stack (real HAProxy 3.2,
+keepalived, PostgreSQL 18, our binaries, FelCloud IP plan on a Docker bridge) and on **FelCloud
 itself** for network isolation. Details per run in the
 [lab notebook](../notebook/experiments.md) (L14, L15).
 
